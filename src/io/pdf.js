@@ -12,6 +12,7 @@
  * vector text, use File -> Print and choose "Save as PDF".
  */
 import { sanitizeHtml } from './sanitize.js';
+import { normalizeLayout } from '../editor/layout.js';
 import { documentCss } from './docStyles.js';
 import { PAGE_SIZES, PAGE_MARGIN } from '../editor/constants.js';
 
@@ -146,11 +147,35 @@ function addTextLayer(pdf, words, srcY, sliceH, ptPerPx, left, top) {
   }
 }
 
+/** Header, footer and "Page n of N" on every PDF page (real text, so it is selectable). */
+export function stampPageFurniture(pdf, layout) {
+  const l = normalizeLayout(layout);
+  if (!l.header && !l.footer && l.pageNumbers === 'none') return;
+  const total = pdf.getNumberOfPages();
+  const w = pdf.internal.pageSize.getWidth();
+  const h = pdf.internal.pageSize.getHeight();
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(9);
+  pdf.setTextColor(85, 85, 85);
+  const at = { left: [MARGIN_PT, 'left'], center: [w / 2, 'center'], right: [w - MARGIN_PT, 'right'] };
+  for (let n = 1; n <= total; n += 1) {
+    pdf.setPage(n);
+    if (l.header) pdf.text(toLatin1(l.header), w / 2, MARGIN_PT / 2 + 4, { align: 'center' });
+    if (l.footer) pdf.text(toLatin1(l.footer), w / 2, h - MARGIN_PT / 2 + 4, { align: 'center' });
+    if (l.pageNumbers !== 'none') {
+      const [x, align] = at[l.pageNumbers];
+      // Avoid colliding with centred footer text.
+      const y = h - MARGIN_PT / 2 + 4 + (l.footer && l.pageNumbers === 'center' ? 12 : 0);
+      pdf.text(`Page ${n} of ${total}`, x, y, { align });
+    }
+  }
+}
+
 /**
  * @param {{title:string, html:string, pageSize?:'letter'|'a4'}} doc
  * @returns {Promise<{blob: Blob, warnings: string[]}>}
  */
-export async function buildPdf({ title, html, pageSize = 'letter' }) {
+export async function buildPdf({ title, html, pageSize = 'letter', layout }) {
   const [{ jsPDF }, { default: html2canvas }] = await Promise.all([import('jspdf'), import('html2canvas')]);
   const page = PAGE_SIZES[pageSize] || PAGE_SIZES.letter;
   const contentPx = page.width - PAGE_MARGIN * 2;
@@ -224,5 +249,6 @@ export async function buildPdf({ title, html, pageSize = 'letter' }) {
   } finally {
     host.remove();
   }
+  stampPageFurniture(pdf, layout);
   return { blob: pdf.output('blob'), warnings };
 }

@@ -4,6 +4,8 @@
  * durable copy.
  */
 import { sanitizeHtml } from './sanitize.js';
+import { setPrefs } from '../settings/prefs.js';
+import { normalizeLayout } from '../editor/layout.js';
 import { downloadBlob } from './export.js';
 import { htmlToPlainText, countWords, countCharacters } from '../storage/text.js';
 
@@ -18,7 +20,7 @@ export function buildBackup(docs) {
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
-    documents: docs.map(({ id, title, html, pageSize, createdAt, updatedAt }) => ({ id, title, html, pageSize, createdAt, updatedAt })),
+    documents: docs.map(({ id, title, html, pageSize, layout, createdAt, updatedAt }) => ({ id, title, html, pageSize, layout, createdAt, updatedAt })),
   };
 }
 
@@ -27,7 +29,21 @@ export async function downloadBackup(store) {
   const backup = buildBackup(docs);
   const stamp = new Date().toISOString().slice(0, 10);
   downloadBlob(new Blob([JSON.stringify(backup)], { type: 'application/json' }), `pagewise-backup-${stamp}.json`);
+  setPrefs({ lastBackupAt: Date.now() });
   return docs.length;
+}
+
+export const BACKUP_REMINDER_DAYS = 14;
+const DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * Should the home page nudge the user to back up? Yes when there are documents and the last
+ * backup (or, if never backed up, the oldest document) is more than two weeks old, unless snoozed.
+ */
+export function backupReminderDue({ lastBackupAt = 0, backupSnoozedUntil = 0 }, docs, now = Date.now()) {
+  if (!docs || !docs.length || now < backupSnoozedUntil) return false;
+  const since = lastBackupAt || Math.min(...docs.map((d) => d.createdAt || now));
+  return now - since > BACKUP_REMINDER_DAYS * DAY;
 }
 
 /** Validate and sanitise backup JSON text. Throws Error with a readable message on bad input. */
@@ -61,6 +77,7 @@ export function parseBackup(text) {
         wordCount: countWords(textContent),
         charCount: countCharacters(textContent),
         pageSize: d.pageSize === 'a4' ? 'a4' : 'letter',
+        layout: normalizeLayout(d.layout),
         createdAt: Number.isFinite(d.createdAt) && d.createdAt > 0 ? d.createdAt : now,
         updatedAt: Number.isFinite(d.updatedAt) && d.updatedAt > 0 ? d.updatedAt : now,
       };

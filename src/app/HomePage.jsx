@@ -10,7 +10,9 @@ import { ConfirmDialog, PromptDialog } from '../components/Dialog.jsx';
 import { PrivacyDialog, AboutDialog } from '../components/InfoDialogs.jsx';
 import { useToast } from '../components/Toasts.jsx';
 import { usePwaState, promptInstall } from '../pwa/register.js';
-import { createNewDocument, importIntoNewDocument, openDocument } from './actions.js';
+import { downloadBackup, backupReminderDue } from '../io/backup.js';
+import TemplateDialog from '../components/TemplateDialog.jsx';
+import { createNewDocument, createFromTemplate, importIntoNewDocument, openDocument } from './actions.js';
 import { formatModified, formatFull } from './format.js';
 
 function CardMenu({ doc, onOpen, onRename, onCopy, onDownload, onDelete }) {
@@ -100,6 +102,7 @@ export default function HomePage() {
   };
 
   const create = () => guard(async () => openDocument((await createNewDocument()).id));
+  const createTemplate = (id) => guard(async () => openDocument((await createFromTemplate(id)).id));
 
   const importFile = (file) =>
     guard(async () => {
@@ -186,6 +189,29 @@ export default function HomePage() {
           <Icon name="alert" /> Browser storage is not available here ({store.initError?.message || 'it may be disabled or this is a private window'}). You can still write, but documents will be lost when this tab closes. Download anything you want to keep.
         </div>
       )}
+      {store.persistent && docs && backupReminderDue(prefs, docs) && (
+        <div className="banner banner-warn" role="note">
+          <Icon name="alert" />
+          <span>
+            {prefs.lastBackupAt ? `Your last backup was ${formatModified(prefs.lastBackupAt)}.` : 'You have not backed up your documents yet.'} Browsers can erase site data, so a backup file is your safety net.
+          </span>
+          <button
+            type="button"
+            className="btn"
+            onClick={() =>
+              guard(async () => {
+                const n = await downloadBackup(store);
+                toast(`Backed up ${n} document${n === 1 ? '' : 's'} to a file in your downloads.`, { kind: 'success' });
+              })
+            }
+          >
+            Back up now
+          </button>
+          <button type="button" className="icon-btn" aria-label="Remind me in a week" title="Remind me in a week" onClick={() => setPrefs({ backupSnoozedUntil: Date.now() + 7 * 24 * 60 * 60 * 1000 })}>
+            <Icon name="x" size={16} />
+          </button>
+        </div>
+      )}
       {store.persistent && !prefs.dismissedStorageNotice && (
         <div className="banner banner-info" role="note">
           <Icon name="shield" />
@@ -218,6 +244,9 @@ export default function HomePage() {
           </label>
           <button type="button" className="btn" onClick={() => importRef.current?.click()} disabled={busy}>
             <Icon name="upload" /> Import file
+          </button>
+          <button type="button" className="btn" onClick={() => setDialog({ type: 'templates' })} disabled={busy}>
+            <Icon name="file" /> Templates
           </button>
           <button type="button" className="btn btn-primary" onClick={create} disabled={busy}>
             <Icon name="filePlus" /> New document
@@ -306,6 +335,7 @@ export default function HomePage() {
 
       <footer className="home-footer">Pagewise keeps documents in your browser only. No accounts, no uploads, no tracking.</footer>
 
+      {dialog?.type === 'templates' && <TemplateDialog busy={busy} onPick={createTemplate} onClose={() => setDialog(null)} />}
       {dialog?.type === 'privacy' && <PrivacyDialog onClose={() => setDialog(null)} onRestored={load} />}
       {dialog?.type === 'about' && <AboutDialog onClose={() => setDialog(null)} />}
       {dialog?.type === 'rename' && <PromptDialog title="Rename document" label="Document title" initialValue={dialog.doc.title} onCancel={() => setDialog(null)} onSubmit={(t) => rename(dialog.doc, t)} />}

@@ -107,3 +107,18 @@ describe('backup restore validation', () => {
     await expect(restoreBackup({ size: 10 * 1024 * 1024 * 1024, text: async () => '' }, {})).rejects.toThrow(/too large/);
   });
 });
+
+describe('backup reminder', () => {
+  it('is due only when documents exist, the last backup is old, and it is not snoozed', async () => {
+    const { backupReminderDue } = await import('../src/io/backup.js');
+    const DAY = 86400000;
+    const now = Date.now();
+    const docs = [{ createdAt: now - 30 * DAY }];
+    expect(backupReminderDue({}, [], now)).toBe(false);
+    expect(backupReminderDue({ lastBackupAt: 0 }, docs, now)).toBe(true); // never backed up, old documents
+    expect(backupReminderDue({ lastBackupAt: 0 }, [{ createdAt: now - DAY }], now)).toBe(false); // brand new
+    expect(backupReminderDue({ lastBackupAt: now - 3 * DAY }, docs, now)).toBe(false);
+    expect(backupReminderDue({ lastBackupAt: now - 20 * DAY }, docs, now)).toBe(true);
+    expect(backupReminderDue({ lastBackupAt: now - 20 * DAY, backupSnoozedUntil: now + DAY }, docs, now)).toBe(false);
+  });
+});

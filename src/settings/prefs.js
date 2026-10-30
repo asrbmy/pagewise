@@ -13,6 +13,8 @@ export const DEFAULT_PREFS = {
   sort: 'modified-desc',
   showStatusBar: true,
   dismissedStorageNotice: false,
+  lastBackupAt: 0, // ms timestamp of the last backup file the user downloaded
+  backupSnoozedUntil: 0,
 };
 
 function load() {

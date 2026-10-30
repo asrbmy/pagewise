@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { normalizeLayout, NUMBER_POSITIONS } from '../editor/layout.js';
 import { Dialog } from './Dialog.jsx';
 import Icon from './Icon.jsx';
 import { fileToImageDataUrl, ACCEPTED_IMAGE_TYPES } from '../editor/images.js';
@@ -349,20 +350,21 @@ export function FindReplacePanel({ editor, onClose, initialTerm = '' }) {
 
 // ------------------------------------------------------------------ Page setup
 
-export function PageSetupDialog({ pageSize, onApply, onClose }) {
+export function PageSetupDialog({ pageSize, layout, onApply, onClose }) {
   const [size, setSize] = useState(pageSize);
+  const [lay, setLay] = useState(() => normalizeLayout(layout));
   const [asDefault, setAsDefault] = useState(false);
   return (
     <Dialog
       title="Page setup"
       onClose={onClose}
       size="sm"
-      description="Sets the paper size shown in the editor and used for printing and for PDF/Word export. Margins are 1 inch."
+      description="Sets the paper size, header, footer and page numbers used for printing and for PDF, Word and web-page export. Margins are 1 inch."
     >
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          onApply(size, asDefault);
+          onApply(size, asDefault, normalizeLayout(lay));
           onClose();
         }}
       >
@@ -374,6 +376,17 @@ export function PageSetupDialog({ pageSize, onApply, onClose }) {
             </label>
           ))}
         </fieldset>
+        <label className="field-label" htmlFor="pw-header">Header (top of every page)</label>
+        <input id="pw-header" className="input" type="text" value={lay.header} maxLength={150} onChange={(e) => setLay({ ...lay, header: e.target.value })} />
+        <label className="field-label" htmlFor="pw-footer">Footer (bottom of every page)</label>
+        <input id="pw-footer" className="input" type="text" value={lay.footer} maxLength={150} onChange={(e) => setLay({ ...lay, footer: e.target.value })} />
+        <label className="field-label" htmlFor="pw-numbers">Page numbers</label>
+        <select id="pw-numbers" className="input" value={lay.pageNumbers} onChange={(e) => setLay({ ...lay, pageNumbers: e.target.value })}>
+          {Object.entries(NUMBER_POSITIONS).map(([id, label]) => (
+            <option key={id} value={id}>{label}</option>
+          ))}
+        </select>
+        <p className="hint">The editor shows one continuous sheet, so page numbers appear in print (Chrome, Edge), PDF, Word and web-page export, not on screen.</p>
         <label className="check">
           <input type="checkbox" checked={asDefault} onChange={(e) => setAsDefault(e.target.checked)} /> Use this size for new documents
         </label>

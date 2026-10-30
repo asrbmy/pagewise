@@ -5,6 +5,7 @@
  */
 import { htmlToPlainText } from '../storage/text.js';
 import { sanitizeHtml } from './sanitize.js';
+import { normalizeLayout, pageMarginRules } from '../editor/layout.js';
 import { documentCss } from './docStyles.js';
 
 export function safeFilename(title, ext) {
@@ -57,7 +58,8 @@ export async function exportTxt({ title, html }) {
 // ---------------------------------------------------------------- HTML
 
 /** A complete standalone HTML file with styles inlined (no external requests). */
-export function buildStandaloneHtml({ title, html, pageSize }) {
+export function buildStandaloneHtml({ title, html, pageSize, layout }) {
+  const l = normalizeLayout(layout);
   const safe = sanitizeHtml(html);
   const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   return `<!doctype html>
@@ -69,20 +71,20 @@ export function buildStandaloneHtml({ title, html, pageSize }) {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: https:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>${esc(title || 'Untitled document')}</title>
-<style>${documentCss(pageSize)}</style>
+<style>${documentCss(pageSize)}${pageMarginRules(l) ? ` @page { ${pageMarginRules(l)} }` : ''}${l.header || l.footer ? ' .doc-furniture{font:9pt sans-serif;color:#555;text-align:center;margin:0 auto;max-width:816px} @media print{.doc-furniture{display:none}}' : ''}</style>
 </head>
 <body>
-<main class="doc">
+${l.header ? `<div class="doc-furniture">${esc(l.header)}</div>\n` : ''}<main class="doc">
 ${safe}
-</main>
+</main>${l.footer ? `\n<div class="doc-furniture">${esc(l.footer)}</div>` : ''}
 </body>
 </html>
 `;
 }
 
-export async function exportHtml({ title, html, pageSize }) {
+export async function exportHtml({ title, html, pageSize, layout }) {
   return {
-    blob: new Blob([buildStandaloneHtml({ title, html, pageSize })], { type: 'text/html;charset=utf-8' }),
+    blob: new Blob([buildStandaloneHtml({ title, html, pageSize, layout })], { type: 'text/html;charset=utf-8' }),
     filename: safeFilename(title, 'html'),
     warnings: [],
   };
@@ -155,9 +157,9 @@ export async function exportMarkdown({ title, html }) {
 
 // ---------------------------------------------------------------- DOCX
 
-export async function exportDocx({ title, html, pageSize }) {
+export async function exportDocx({ title, html, pageSize, layout }) {
   const { htmlToDocxBlob } = await import('./docx.js');
-  const { blob, warnings } = await htmlToDocxBlob(html, { title, pageSize });
+  const { blob, warnings } = await htmlToDocxBlob(html, { title, pageSize, layout });
   return { blob, filename: safeFilename(title, 'docx'), warnings };
 }
 
@@ -168,9 +170,9 @@ export async function exportDocx({ title, html, pageSize }) {
  * on top (selectable, copyable, searchable for Latin text); for true vector text use File ->
  * Print and choose "Save as PDF".
  */
-export async function exportPdf({ title, html, pageSize }) {
+export async function exportPdf({ title, html, pageSize, layout }) {
   const { buildPdf } = await import('./pdf.js');
-  const { blob, warnings } = await buildPdf({ title, html, pageSize });
+  const { blob, warnings } = await buildPdf({ title, html, pageSize, layout });
   return { blob, filename: safeFilename(title, 'pdf'), warnings };
 }
 

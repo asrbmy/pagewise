@@ -9,7 +9,11 @@
  * Not representable (reported through `warnings` instead of failing silently):
  * images that are external URLs or SVG, which are replaced by their alt text.
  */
+import { normalizeLayout } from '../editor/layout.js';
 import {
+  Header,
+  Footer,
+  PageNumber,
   Document,
   Packer,
   Paragraph,
@@ -384,11 +388,37 @@ function numberingConfig() {
   };
 }
 
+/** Word header/footer for the section, including a real PAGE field for page numbers. */
+function docxFurniture(layout) {
+  const l = normalizeLayout(layout);
+  const small = { font: FONT, size: 18, color: '555555' };
+  const out = {};
+  if (l.header) out.headers = { default: new Header({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ ...small, text: l.header })] })] }) };
+  if (l.footer || l.pageNumbers !== 'none') {
+    const align = { left: AlignmentType.LEFT, center: AlignmentType.CENTER, right: AlignmentType.RIGHT };
+    const numbered = l.pageNumbers !== 'none';
+    const sameBox = numbered && l.pageNumbers === 'center';
+    const paras = [];
+    if (l.footer) {
+      const runs = [new TextRun({ ...small, text: sameBox ? `${l.footer} · Page ` : l.footer })];
+      if (sameBox) runs.push(new TextRun({ ...small, children: [PageNumber.CURRENT] }));
+      paras.push(new Paragraph({ alignment: AlignmentType.CENTER, children: runs }));
+    }
+    if (numbered && !sameBox) {
+      paras.push(new Paragraph({ alignment: align[l.pageNumbers], children: [new TextRun({ ...small, children: ['Page ', PageNumber.CURRENT] })] }));
+    } else if (sameBox && !l.footer) {
+      paras.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ ...small, children: ['Page ', PageNumber.CURRENT] })] }));
+    }
+    out.footers = { default: new Footer({ children: paras }) };
+  }
+  return out;
+}
+
 /**
  * Build a docx `Document` from editor HTML.
  * @returns {{doc: Document, warnings: string[]}}
  */
-export function buildDocx(html, { title = 'Document', pageSize = 'letter' } = {}) {
+export function buildDocx(html, { title = 'Document', pageSize = 'letter', layout } = {}) {
   const ctx = createContext(pageSize);
   const parsed = new DOMParser().parseFromString(`<body>${html || ''}</body>`, 'text/html');
   let children = blocksFrom(parsed.body, ctx);
@@ -419,6 +449,7 @@ export function buildDocx(html, { title = 'Document', pageSize = 'letter' } = {}
             margin: { top: 1440, bottom: 1440, left: 1440, right: 1440 },
           },
         },
+        ...docxFurniture(layout),
         children,
       },
     ],

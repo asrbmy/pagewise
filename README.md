@@ -36,6 +36,14 @@ Without `BASE_PATH` the build uses relative asset paths (`./`), which also works
 
 **Editing**: undo/redo, font family and size, bold/italic/underline/strike, sub/superscript, text colour and highlight, paragraph styles and headings, alignment, indent/outdent, bulleted and numbered lists, line height, paragraph spacing, links, images (upload, paste or URL; resizable), tables (add/remove rows, columns, header row), horizontal rule, page break, find and replace, browser spellcheck, word/character counts, zoom, page size and margins, light/dark theme, and keyboard shortcuts (Help → Keyboard shortcuts).
 
+**Version history**: File → Version history keeps snapshots (taken when a document is opened, every ten minutes of editing, and on request, with optional names), previews them, and restores one. A restore first saves the text it replaces as "Before restore". Up to 40 automatic snapshots are kept per document; named ones are kept until deleted. Snapshots live in this browser only and are not part of the backup file.
+
+**Templates and structure**: start from a template (letter, meeting notes, résumé, report, project plan) on the home page or File → New from template. Insert → Table of contents builds a contents list from Heading 1–3 and Update table of contents refreshes it (entries are not linked or page-numbered).
+
+**Header, footer and page numbers**: File → Page setup. They appear in PDF, Word (real page-number field) and web-page export, and in print on Chromium-based browsers (Chrome, Edge). The on-screen sheet shows the header and footer but not page numbers, because it is one continuous sheet.
+
+**Backup reminder**: the home page nudges you when you have never backed up, or the last backup is over two weeks old (snooze for a week).
+
 **Paste cleaning**: Word and web HTML is sanitized, Word lists are converted to real lists, and junk styles are dropped.
 
 **Import**: `.docx`, `.txt`, `.md`/`.markdown`, `.html`. Unsupported features are reported in a notice.
@@ -44,7 +52,7 @@ Without `BASE_PATH` the build uses relative asset paths (`./`), which also works
 
 **Offline / PWA**: a service worker caches the app so it loads offline and can be installed.
 
-**Accessibility**: skip link, focus-trapped dialogs, ARIA menubar with arrow-key navigation, toolbar arrow-key navigation, live-region notifications, visible focus, reduced-motion respect.
+**Accessibility**: an automated axe-core audit of the editor, dialogs and home page (light and dark) reports no WCAG 2.1 A/AA violations. Skip link, focus-trapped dialogs, ARIA menubar with arrow-key navigation, toolbar arrow-key navigation, live-region notifications, visible focus, reduced-motion respect.
 
 ## Privacy
 
@@ -104,7 +112,9 @@ Key design points:
 
 - **PDF export** draws each page as an image with an invisible text layer on top, so Latin-script text can be selected, copied and searched. Other scripts (e.g. Chinese, Arabic) are not in the text layer, and the file is larger than a vector PDF. For true vector text use Print → Save as PDF.
 - **DOCX import** keeps structure (headings, lists, tables, bold/italic, images) but drops fonts, colours, headers/footers, comments, tracked changes and page layout. **DOCX export** is an approximation of the on-screen layout.
-- Page counts are approximate; there is no true on-screen pagination.
+- Page counts are approximate; there is no true on-screen pagination, so page numbers appear only in print/PDF/Word/HTML output.
+- Version history, like documents, lives only in this browser and is not included in backup files.
+- Not built: comments, footnotes, drawings, equations, folders, encryption and sync.
 - No real-time collaboration, sync, or encryption.
 - Browser storage quotas apply; large embedded images are downscaled to 1600 px.
 - Mobile fit-to-width uses a reflow view because a full page would be unreadable at phone width.

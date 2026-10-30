@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { DocumentStore, StorageError } from '../src/storage/documents.js';
+import { DocumentStore, StorageError, MAX_AUTO_VERSIONS } from '../src/storage/documents.js';
 import { htmlToPlainText, countWords, makeSnippet } from '../src/storage/text.js';
 
 let store;
@@ -148,5 +148,57 @@ describe('text helpers', () => {
   });
   it('makes snippets around matches', () => {
     expect(makeSnippet('a '.repeat(100) + 'needle ' + 'b '.repeat(100), 'needle')).toContain('needle');
+  });
+});
+
+describe('version history', () => {
+  let s;
+  beforeEach(async () => {
+    s = new DocumentStore({ dbName: 'v-' + Math.random() });
+    await s.init();
+  });
+
+  it('records snapshots newest-first and skips identical automatic ones', async () => {
+    const d = await s.createDocument({ html: '<p>one</p>' });
+    await s.addVersion(d.id, { html: '<p>one</p>', title: d.title });
+    expect(await s.addVersion(d.id, { html: '<p>one</p>', title: d.title })).toBeNull();
+    await new Promise((r) => setTimeout(r, 5));
+    await s.addVersion(d.id, { html: '<p>two</p>', title: d.title });
+    const list = await s.listVersions(d.id);
+    expect(list).toHaveLength(2);
+    expect(list[0].wordCount).toBe(1);
+    expect(list[0].html).toBeUndefined();
+  });
+
+  it('keeps named versions even when identical, and prunes only automatic ones', async () => {
+    const d = await s.createDocument({ html: '<p>x</p>' });
+    await s.addVersion(d.id, { html: '<p>x</p>', title: 't', label: 'Draft 1' });
+    for (let i = 0; i < MAX_AUTO_VERSIONS + 5; i += 1) {
+      await s.addVersion(d.id, { html: `<p>v${i}</p>`, title: 't' }); // eslint-disable-line no-await-in-loop
+    }
+    const list = await s.listVersions(d.id);
+    expect(list.filter((v) => v.label === 'Draft 1')).toHaveLength(1);
+    expect(list.filter((v) => !v.label)).toHaveLength(MAX_AUTO_VERSIONS);
+  });
+
+  it('restores a version and snapshots the content it replaced', async () => {
+    const d = await s.createDocument({ html: '<p>original</p>' });
+    const v = await s.addVersion(d.id, { html: '<p>original</p>', title: d.title });
+    await s.saveDocument(d.id, { html: '<p>edited</p>' });
+    const restored = await s.restoreVersion(d.id, v.vid);
+    expect(restored.html).toBe('<p>original</p>');
+    const list = await s.listVersions(d.id);
+    expect(list.some((x) => x.label === 'Before restore')).toBe(true);
+    const before = await s.getVersion(list.find((x) => x.label === 'Before restore').vid);
+    expect(before.html).toBe('<p>edited</p>');
+  });
+
+  it('refuses a version that belongs to another document, and deletes versions with the document', async () => {
+    const a = await s.createDocument({});
+    const b = await s.createDocument({});
+    const v = await s.addVersion(a.id, { html: '<p>a</p>', title: 'a' });
+    await expect(s.restoreVersion(b.id, v.vid)).rejects.toThrow(/no longer exists/);
+    await s.deleteDocument(a.id);
+    expect(await s.listVersions(a.id)).toHaveLength(0);
   });
 });

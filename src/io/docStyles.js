@@ -29,6 +29,8 @@ export function documentCss(pageSize = 'letter') {
   .doc code { font-family: ui-monospace, Menlo, Consolas, monospace; background: #f3f4f6; padding: 0 3px; border-radius: 3px; }
   .doc hr { border: 0; border-top: 1px solid #9ca3af; margin: 12pt 0; }
   .doc mark { color: inherit; }
+  .doc .toc { margin: 8pt 0; padding: 8pt 12pt; border: 1px solid #9ca3af; border-radius: 6px; }
+  .doc .toc p { margin: 2pt 0; }
   .doc .page-break { break-after: page; page-break-after: always; height: 0; }
   @page { size: ${page.css}; margin: 1in; }
   @media print { .doc { padding: 0; max-width: none; } }

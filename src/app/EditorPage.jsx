@@ -4,7 +4,10 @@ import { buildExtensions } from '../editor/extensions/index.js';
 import { cleanPastedHtml } from '../editor/pasteClean.js';
 import { fileToImageDataUrl, isImageFile } from '../editor/images.js';
 import { PAGE_SIZES, ZOOM_LEVELS } from '../editor/constants.js';
-import { store } from '../storage/documents.js';
+import { normalizeLayout, pageMarginRules } from '../editor/layout.js';
+import TemplateDialog from '../components/TemplateDialog.jsx';
+import { store, AUTO_VERSION_INTERVAL } from '../storage/documents.js';
+import VersionDialog from '../components/VersionDialog.jsx';
 import { exportAndDownload, EXPORTERS } from '../io/export.js';
 import { downloadBackup } from '../io/backup.js';
 import { IMPORT_ACCEPT } from '../io/import.js';
@@ -18,7 +21,7 @@ import { ConfirmDialog } from '../components/Dialog.jsx';
 import { useToast } from '../components/Toasts.jsx';
 import { LinkDialog, ImageDialog, TableDialog, FindReplacePanel, PageSetupDialog, WordCountDialog, ShortcutsDialog } from '../components/EditorDialogs.jsx';
 import { PrivacyDialog, AboutDialog } from '../components/InfoDialogs.jsx';
-import { createNewDocument, importIntoNewDocument, openDocument, goHome } from './actions.js';
+import { createNewDocument, createFromTemplate, importIntoNewDocument, openDocument, goHome } from './actions.js';
 import { formatModified, formatFull } from './format.js';
 
 const SAVE_DELAY = 700;
@@ -74,6 +77,7 @@ function EditorSurface({ doc }) {
 
   const [title, setTitle] = useState(doc.title);
   const [pageSize, setPageSizeState] = useState(doc.pageSize || 'letter');
+  const [layout, setLayout] = useState(() => normalizeLayout(doc.layout));
   const [updatedAt, setUpdatedAt] = useState(doc.updatedAt);
   const [saveState, setSaveState] = useState('saved'); // saved | dirty | saving | error
   const [saveError, setSaveError] = useState('');
@@ -94,6 +98,7 @@ function EditorSurface({ doc }) {
   const version = useRef(0); // bumps on every edit
   const inflight = useRef(null);
   const titleSaved = useRef(doc.title);
+  const lastSnapshot = useRef(Date.now());
 
   // ---------------------------------------------------------------- saving
 
@@ -112,6 +117,10 @@ function EditorSurface({ doc }) {
       try {
         const saved = await store.saveDocument(doc.id, { html: editor.getHTML() });
         setUpdatedAt(saved.updatedAt);
+        if (Date.now() - lastSnapshot.current >= AUTO_VERSION_INTERVAL) {
+          lastSnapshot.current = Date.now();
+          store.addVersion(doc.id, { html: saved.html, title: saved.title }).catch(() => {}); // best effort
+        }
         if (version.current === started) {
           dirty.current = false;
           setSaveState('saved');
@@ -149,6 +158,11 @@ function EditorSurface({ doc }) {
     },
     [save, toast],
   );
+
+  // Remember how the document looked when it was opened, so a session's edits can be rolled back.
+  useEffect(() => {
+    if (doc.text && doc.text.trim()) store.addVersion(doc.id, { html: doc.html, title: doc.title }).catch(() => {});
+  }, [doc.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Flush when the tab is hidden / page closes, warn about unsaved work.
   useEffect(() => {
@@ -242,10 +256,10 @@ function EditorSurface({ doc }) {
   useEffect(() => {
     const style = document.createElement('style');
     style.id = 'pw-page-style';
-    style.textContent = `@page { size: ${page.css}; margin: 1in; }`;
+    style.textContent = `@page { size: ${page.css}; margin: 1in; ${pageMarginRules(layout)} }`;
     document.head.appendChild(style);
     return () => style.remove();
-  }, [page.css]);
+  }, [page.css, layout]);
 
   // Measure the canvas and the document body.
   useEffect(() => {
@@ -324,7 +338,7 @@ function EditorSurface({ doc }) {
     const label = EXPORTERS[format].label;
     const pending = toast(`Preparing ${label}…`, { duration: 0 });
     try {
-      const result = await exportAndDownload(format, { title, html: editor.getHTML(), pageSize });
+      const result = await exportAndDownload(format, { title, html: editor.getHTML(), pageSize, layout });
       toast.dismiss(pending);
       toast(`Downloaded ${result.filename}`, { kind: result.warnings.length ? 'warning' : 'success', details: result.warnings });
     } catch (err) {
@@ -350,6 +364,15 @@ function EditorSurface({ doc }) {
     leaveTo(async () => {
       try {
         openDocument((await createNewDocument()).id);
+      } catch (err) {
+        toast(err.message, { kind: 'error' });
+      }
+    });
+
+  const newFromTemplate = (id) =>
+    leaveTo(async () => {
+      try {
+        openDocument((await createFromTemplate(id)).id);
       } catch (err) {
         toast(err.message, { kind: 'error' });
       }
@@ -444,11 +467,13 @@ function EditorSurface({ doc }) {
           label: 'File',
           items: [
             { label: 'New document', onSelect: newDocument },
+            { label: 'New from template…', onSelect: () => setDialog({ type: 'templates' }) },
             { label: 'All documents', onSelect: () => leaveTo(goHome) },
             { label: 'Import file as new document…', onSelect: () => importRef.current?.click() },
             { separator: true },
             { label: 'Make a copy', onSelect: makeCopy },
             { label: 'Rename', onSelect: () => titleRef.current?.focus() },
+            { label: 'Version history…', onSelect: () => setDialog({ type: 'versions' }) },
             { label: 'Save now', shortcut: `${MOD}S`, onSelect: () => saveNow(true) },
             { separator: true },
             { heading: 'Download as' },
@@ -508,6 +533,8 @@ function EditorSurface({ doc }) {
             { separator: true },
             { label: 'Horizontal line', onSelect: run('setHorizontalRule') },
             { label: 'Page break', shortcut: `${MOD}Enter`, onSelect: run('setPageBreak') },
+            { label: 'Table of contents', onSelect: run('insertTableOfContents') },
+            { label: 'Update table of contents', onSelect: run('updateTableOfContents') },
             { label: 'Block quote', checked: editor.isActive('blockquote'), onSelect: run('toggleBlockquote') },
           ],
         },
@@ -699,7 +726,9 @@ function EditorSurface({ doc }) {
                 }
               }}
             >
+              {layout.header && <div className="sheet-furniture sheet-header" aria-hidden="true">{layout.header}</div>}
               <EditorContent editor={editor} />
+              {layout.footer && <div className="sheet-furniture sheet-footer" aria-hidden="true">{layout.footer}</div>}
             </div>
           </div>
         </div>
@@ -733,18 +762,41 @@ function EditorSurface({ doc }) {
       {dialog?.type === 'image' && editor && <ImageDialog editor={editor} range={dialog.range} onClose={closeDialog} notify={toast} />}
       {dialog?.type === 'table' && editor && <TableDialog editor={editor} range={dialog.range} onClose={closeDialog} />}
       {dialog?.type === 'count' && editor && <WordCountDialog editor={editor} pages={pages} onClose={closeDialog} />}
+      {dialog?.type === 'templates' && <TemplateDialog onPick={(id) => { closeDialog(); newFromTemplate(id); }} onClose={closeDialog} />}
+      {dialog?.type === 'versions' && editor && (
+        <VersionDialog
+          store={store}
+          docId={doc.id}
+          title={title}
+          notify={toast}
+          flush={async () => {
+            await save();
+            return editor.getHTML();
+          }}
+          onRestore={(restored) => {
+            editor.commands.setContent(restored.html, { emitUpdate: false });
+            version.current += 1;
+            dirty.current = false;
+            setUpdatedAt(restored.updatedAt);
+            setSaveState('saved');
+          }}
+          onClose={closeDialog}
+        />
+      )}
       {dialog?.type === 'shortcuts' && <ShortcutsDialog onClose={closeDialog} />}
       {dialog?.type === 'privacy' && <PrivacyDialog onClose={closeDialog} />}
       {dialog?.type === 'about' && <AboutDialog onClose={closeDialog} />}
       {dialog?.type === 'page' && (
         <PageSetupDialog
           pageSize={pageSize}
+          layout={layout}
           onClose={closeDialog}
-          onApply={async (size, asDefault) => {
+          onApply={async (size, asDefault, nextLayout) => {
             setPageSizeState(size);
+            setLayout(nextLayout);
             if (asDefault) setPrefs({ pageSize: size });
             try {
-              await store.saveDocument(doc.id, { pageSize: size });
+              await store.saveDocument(doc.id, { pageSize: size, layout: nextLayout });
             } catch (err) {
               toast(err.message, { kind: 'error' });
             }

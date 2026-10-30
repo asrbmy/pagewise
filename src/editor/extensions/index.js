@@ -18,6 +18,7 @@ import { FontSize } from './fontSize.js';
 import { ParagraphFormat } from './paragraphFormat.js';
 import { PageBreak } from './pageBreak.js';
 import { FindReplace } from './findReplace.js';
+import { TableOfContents } from './tableOfContents.js';
 
 /** Image with an optional width (percentage of the text column) so images can be resized. */
 const ResizableImage = Image.extend({
@@ -69,6 +70,7 @@ export function buildExtensions({ placeholder = 'Start typing…' } = {}) {
     Superscript,
     ParagraphFormat,
     PageBreak,
+    TableOfContents,
     FindReplace,
     Placeholder.configure({ placeholder }),
     CharacterCount,

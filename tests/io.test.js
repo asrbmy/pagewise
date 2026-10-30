@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import JSZip from 'jszip';
 import { htmlToDocxBuffer } from '../src/io/docx.js';
 import { importFile, textToHtml, markdownToHtml, ImportError } from '../src/io/import.js';
-import { exportTxt, exportHtml, exportMarkdown, htmlToMarkdown, safeFilename, detectRichFeatures } from '../src/io/export.js';
+import { exportTxt, exportHtml, exportMarkdown, htmlToMarkdown, safeFilename, detectRichFeatures, buildStandaloneHtml } from '../src/io/export.js';
 import { buildBackup, parseBackup } from '../src/io/backup.js';
 import { sanitizeHtml } from '../src/io/sanitize.js';
 import { cleanPastedHtml } from '../src/editor/pasteClean.js';
@@ -242,5 +242,54 @@ describe('PDF text layer helpers', () => {
     expect(toLatin1('\u201cHello\u201d \u2013 it\u2019s\u2026')).toBe('"Hello" - it\'s...');
     expect(toLatin1('caf\u00e9')).toBe('caf\u00e9');
     expect(toLatin1('\u4e2d\u6587')).toBe('');
+  });
+});
+
+describe('table of contents in exports', () => {
+  it('exports as ordinary paragraphs in every text format', async () => {
+    const html = '<div data-type="toc" class="toc"><p><strong>Table of contents</strong></p><p data-indent="1" style="margin-left: 48px">Details</p></div><h1>Details</h1>';
+    const { htmlToMarkdown } = await import('../src/io/export.js');
+    const md = await htmlToMarkdown(html);
+    expect(md).toContain('Table of contents');
+    expect(md).toContain('Details');
+    const { buffer } = await htmlToDocxBuffer(html);
+    expect(buffer.byteLength).toBeGreaterThan(1000);
+  });
+});
+
+describe('header, footer and page numbers', () => {
+  it('normalises untrusted layout values', async () => {
+    const { normalizeLayout, pageMarginRules, cssString } = await import('../src/editor/layout.js');
+    expect(normalizeLayout(null)).toEqual({ header: '', footer: '', pageNumbers: 'none' });
+    expect(normalizeLayout({ header: 'a\nb', footer: 'x'.repeat(500), pageNumbers: 'bogus' })).toEqual({ header: 'a b', footer: 'x'.repeat(150), pageNumbers: 'none' });
+    expect(cssString('a"b\\c</style>')).not.toContain('</style>');
+    const rules = pageMarginRules({ header: 'H', footer: 'F', pageNumbers: 'right' });
+    expect(rules).toContain('@top-center');
+    expect(rules).toContain('@bottom-right');
+    expect(rules).toContain('counter(page)');
+  });
+
+  it('writes a Word header, footer and PAGE field', async () => {
+    const { buffer } = await htmlToDocxBuffer('<p>x</p>', { layout: { header: 'My header', footer: 'My footer', pageNumbers: 'right' } });
+    const zip = await JSZip.loadAsync(buffer);
+    const names = Object.keys(zip.files);
+    const header = await zip.file(names.find((n) => /word\/header\d*\.xml/.test(n))).async('string');
+    const footer = await zip.file(names.find((n) => /word\/footer\d*\.xml/.test(n))).async('string');
+    expect(header).toContain('My header');
+    expect(footer).toContain('My footer');
+    expect(footer).toMatch(/PAGE/);
+  });
+
+  it('adds nothing to Word files when the layout is empty', async () => {
+    const { buffer } = await htmlToDocxBuffer('<p>x</p>', {});
+    const zip = await JSZip.loadAsync(buffer);
+    expect(Object.keys(zip.files).some((n) => /word\/(header|footer)/.test(n))).toBe(false);
+  });
+
+  it('puts header and footer into the exported web page, escaped', () => {
+    const out = buildStandaloneHtml({ title: 't', html: '<p>x</p>', pageSize: 'letter', layout: { header: '<b>H</b>', footer: 'F', pageNumbers: 'center' } });
+    expect(out).toContain('&lt;b&gt;H&lt;/b&gt;');
+    expect(out).toContain('@bottom-center');
+    expect(out).not.toContain('<b>H</b>');
   });
 });

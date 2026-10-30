@@ -173,3 +173,36 @@ describe('find and replace', () => {
     expect(getSearchState(editor).matches).toHaveLength(0);
   });
 });
+
+describe('table of contents', () => {
+  it('builds from headings, round-trips, and updates in place', () => {
+    make('<h1>Intro</h1><p>a</p><h2>Details</h2><p>b</p><h4>Skipped level</h4>');
+    editor.commands.focus('end');
+    editor.commands.insertTableOfContents();
+    let html = editor.getHTML();
+    expect(html).toContain('data-type="toc"');
+    expect(html).toContain('Table of contents');
+    expect(html).toMatch(/<p[^>]*>Intro<\/p>/);
+    expect(html).toMatch(/data-indent="1"[^>]*>Details<\/p>/);
+    expect(html).not.toMatch(/>Skipped level<\/p>.*data-type="toc"/s);
+
+    const again = new Editor({ extensions: buildExtensions(), content: html });
+    expect(again.getHTML()).toBe(html);
+    again.destroy();
+
+    editor.commands.setTextSelection(6);
+    editor.commands.insertContent(' renamed');
+    editor.commands.updateTableOfContents();
+    html = editor.getHTML();
+    expect(html).toMatch(/<p[^>]*>Intro renamed<\/p>/);
+    expect((html.match(/data-type="toc"/g) || []).length).toBe(1);
+  });
+
+  it('says what to do when there are no headings, and update is a no-op without a TOC', () => {
+    make('<p>plain</p>');
+    expect(editor.commands.updateTableOfContents()).toBe(false);
+    editor.commands.focus('end');
+    editor.commands.insertTableOfContents();
+    expect(editor.getText()).toContain('Add headings');
+  });
+});

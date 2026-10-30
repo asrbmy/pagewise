@@ -1,6 +1,7 @@
 /** Document-level actions shared by the document list and the editor. */
 import { store } from '../storage/documents.js';
 import { importFile } from '../io/import.js';
+import { getTemplate } from '../editor/templates.js';
 import { getPrefs } from '../settings/prefs.js';
 
 export function openDocument(id) {
@@ -13,6 +14,11 @@ export function goHome() {
 
 export async function createNewDocument() {
   return store.createDocument({ pageSize: getPrefs().pageSize });
+}
+
+export async function createFromTemplate(id) {
+  const t = getTemplate(id);
+  return store.createDocument({ title: t.title, html: t.html, pageSize: getPrefs().pageSize });
 }
 
 /** Import a file as a brand-new document. Resolves to `{ doc, warnings }`. */
