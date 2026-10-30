@@ -1,0 +1,175 @@
+import { describe, it, expect, afterEach } from 'vitest';
+import { Editor } from '@tiptap/core';
+import { buildExtensions } from '../src/editor/extensions/index.js';
+import { getSearchState } from '../src/editor/extensions/findReplace.js';
+
+let editor;
+function make(content = '<p>Hello world</p>') {
+  editor = new Editor({ extensions: buildExtensions(), content });
+  return editor;
+}
+afterEach(() => editor && editor.destroy());
+
+describe('editor formatting survives a save/reload round trip', () => {
+  it('keeps bold, italic, underline, strike, colour, highlight, font and size', () => {
+    make('<p>plain</p>');
+    editor.commands.selectAll();
+    editor
+      .chain()
+      .toggleBold()
+      .toggleItalic()
+      .toggleUnderline()
+      .toggleStrike()
+      .setColor('#b91c1c')
+      .setHighlight({ color: '#fef08a' })
+      .setFontFamily('Georgia, serif')
+      .setFontSize(18)
+      .run();
+    const html = editor.getHTML();
+    const reloaded = new Editor({ extensions: buildExtensions(), content: html });
+    expect(reloaded.getHTML()).toBe(html);
+    for (const needle of ['<strong>', '<em>', '<u>', '<s>', 'font-size: 18pt', 'Georgia', '<mark']) {
+      expect(html).toContain(needle);
+    }
+    // jsdom (like browsers) may normalise #b91c1c to rgb(185, 28, 28)
+    expect(html).toMatch(/color: (#b91c1c|rgb\(185, 28, 28\))/);
+    reloaded.destroy();
+  });
+
+  it('supports headings, lists, blockquote and alignment', () => {
+    make('<p>one</p>');
+    editor.chain().selectAll().setHeading({ level: 2 }).setTextAlign('center').run();
+    expect(editor.getHTML()).toMatch(/<h2[^>]*text-align: center/);
+    editor.commands.setContent('<p>item</p>');
+    editor.commands.setTextSelection(2);
+    editor.commands.toggleBulletList();
+    expect(editor.getHTML()).toContain('<ul>');
+    editor.commands.toggleOrderedList(); // switches bullet -> numbered
+    expect(editor.getHTML()).toContain('<ol>');
+    expect(editor.getHTML()).not.toContain('<ul>');
+    editor.commands.toggleOrderedList(); // toggles off
+    expect(editor.getHTML()).toBe('<p>item</p>');
+    editor.commands.toggleBlockquote();
+    expect(editor.getHTML()).toContain('<blockquote>');
+  });
+
+  it('applies line height, paragraph spacing and indentation as block attributes', () => {
+    make('<p>spaced</p>');
+    editor.commands.selectAll();
+    editor.commands.setLineHeight('1.5');
+    editor.commands.setParagraphSpacing({ before: 6, after: 12 });
+    editor.commands.indent();
+    editor.commands.indent();
+    const html = editor.getHTML();
+    expect(html).toContain('line-height: 1.5');
+    expect(html).toContain('margin-top: 6pt');
+    expect(html).toContain('margin-bottom: 12pt');
+    expect(html).toContain('data-indent="2"');
+    editor.commands.outdent();
+    expect(editor.getHTML()).toContain('data-indent="1"');
+    const again = new Editor({ extensions: buildExtensions(), content: html });
+    expect(again.getHTML()).toBe(html);
+    again.destroy();
+  });
+
+  it('inserts links, tables with editable cells, horizontal rules and page breaks', () => {
+    make('<p>link me</p>');
+    editor.chain().selectAll().setLink({ href: 'https://example.com' }).run();
+    expect(editor.getHTML()).toContain('href="https://example.com"');
+
+    editor.chain().focus('end').insertTable({ rows: 2, cols: 3, withHeaderRow: true }).run();
+    let html = editor.getHTML();
+    expect(html).toContain('<table');
+    expect((html.match(/<th/g) || []).length).toBe(3);
+    expect((html.match(/<td/g) || []).length).toBe(3);
+
+    editor.commands.insertContent('cell text');
+    expect(editor.getHTML()).toContain('cell text');
+    editor.commands.addRowAfter();
+    editor.commands.addColumnAfter();
+    html = editor.getHTML();
+    expect((html.match(/<tr/g) || []).length).toBe(3);
+
+    editor.chain().focus('end').setHorizontalRule().setPageBreak().run();
+    html = editor.getHTML();
+    expect(html).toContain('<hr');
+    expect(html).toContain('data-type="page-break"');
+    const again = new Editor({ extensions: buildExtensions(), content: html });
+    expect(again.getHTML()).toContain('data-type="page-break"');
+    again.destroy();
+  });
+
+  it('Ctrl+Enter inserts a page break (not a hard line break)', () => {
+    make('<p>before</p>');
+    editor.commands.focus('end');
+    editor.view.dom.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
+    // typing right after the shortcut must land after the break, not replace it
+    editor.commands.insertContent('after');
+    const html = editor.getHTML();
+    expect(html).toMatch(/<p>before<\/p><div[^>]*data-type="page-break"[^>]*><\/div><p>after<\/p>/);
+    expect(html).not.toContain('<br');
+  });
+
+  it('undo and redo work', () => {
+    make('<p>abc</p>');
+    editor.commands.selectAll();
+    editor.commands.toggleBold();
+    expect(editor.getHTML()).toContain('<strong>');
+    editor.commands.undo();
+    expect(editor.getHTML()).not.toContain('<strong>');
+    editor.commands.redo();
+    expect(editor.getHTML()).toContain('<strong>');
+  });
+
+  it('counts words and characters', () => {
+    make('<p>one two three</p><p>four</p>');
+    expect(editor.storage.characterCount.words()).toBe(4);
+    expect(editor.storage.characterCount.characters()).toBeGreaterThan(10);
+  });
+});
+
+describe('find and replace', () => {
+  it('finds matches across formatting boundaries, case-insensitively', () => {
+    make('<p>Hello <strong>wor</strong>ld, hello again</p>');
+    editor.commands.setSearch({ term: 'hello' });
+    expect(getSearchState(editor).matches).toHaveLength(2);
+    editor.commands.setSearch({ term: 'world' });
+    expect(getSearchState(editor).matches).toHaveLength(1);
+    editor.commands.setSearch({ term: 'hello', caseSensitive: true });
+    expect(getSearchState(editor).matches).toHaveLength(1);
+  });
+
+  it('steps through matches with wrap-around and selects them', () => {
+    make('<p>a b a b a</p>');
+    editor.commands.setSearch({ term: 'a' });
+    const st = () => getSearchState(editor);
+    expect(st().matches).toHaveLength(3);
+    expect(st().index).toBe(0);
+    editor.commands.stepSearch(1);
+    expect(st().index).toBe(1);
+    editor.commands.stepSearch(1);
+    editor.commands.stepSearch(1);
+    expect(st().index).toBe(0);
+    editor.commands.stepSearch(-1);
+    expect(st().index).toBe(2);
+    const { from, to } = editor.state.selection;
+    expect(editor.state.doc.textBetween(from, to)).toBe('a');
+  });
+
+  it('replaces the current match and all matches, keeping formatting', () => {
+    make('<p>cat <strong>cat</strong> cat</p>');
+    editor.commands.setSearch({ term: 'cat' });
+    editor.commands.replaceCurrent('dog');
+    expect(editor.getText()).toBe('dog cat cat');
+    editor.commands.replaceAll('bird');
+    expect(editor.getText()).toBe('dog bird bird');
+    expect(editor.getHTML()).toContain('<strong>bird</strong>');
+  });
+
+  it('clears highlights', () => {
+    make('<p>x x</p>');
+    editor.commands.setSearch({ term: 'x' });
+    editor.commands.clearSearch();
+    expect(getSearchState(editor).matches).toHaveLength(0);
+  });
+});
