@@ -3,7 +3,7 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import { buildExtensions } from '../editor/extensions/index.js';
 import { cleanPastedHtml } from '../editor/pasteClean.js';
 import { fileToImageDataUrl, isImageFile } from '../editor/images.js';
-import { PAGE_SIZES, ZOOM_LEVELS } from '../editor/constants.js';
+import { PAGE_SIZES, PAGE_MARGIN, ZOOM_LEVELS } from '../editor/constants.js';
 import { normalizeLayout, pageMarginRules } from '../editor/layout.js';
 import TemplateDialog from '../components/TemplateDialog.jsx';
 import { store, AUTO_VERSION_INTERVAL } from '../storage/documents.js';
@@ -288,6 +288,12 @@ function EditorSurface({ doc }) {
   const pages = Math.max(1, Math.ceil((contentHeight - 4) / page.height));
   const sheetHeight = reflow ? Math.max(contentHeight, 480) : pages * page.height;
 
+  // Tell the pagination plugin the page geometry; it is off in the phone reflow view.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    editor.commands.setPagination({ enabled: prefs.pagination && !reflow, pageHeight: page.height, margin: PAGE_MARGIN });
+  }, [editor, prefs.pagination, reflow, page.height]);
+
   const setZoomClamped = (z) => setZoom(z === 'fit' ? 'fit' : Math.min(2, Math.max(0.25, z)));
   const zoomStep = (dir) => {
     const levels = ZOOM_LEVELS.map((l) => l.value).filter((v) => v !== 'fit');
@@ -520,6 +526,7 @@ function EditorSurface({ doc }) {
             { label: 'Dark', checked: prefs.theme === 'dark', onSelect: () => setPrefs({ theme: 'dark' }) },
             { label: 'Match system', checked: prefs.theme === 'system', onSelect: () => setPrefs({ theme: 'system' }) },
             { separator: true },
+            { label: 'Show page gaps (text never crosses a page edge)', checked: prefs.pagination, onSelect: () => setPrefs({ pagination: !prefs.pagination }) },
             { label: 'Show status bar', checked: prefs.showStatusBar, onSelect: () => setPrefs({ showStatusBar: !prefs.showStatusBar }) },
             { label: 'Full screen', onSelect: () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.()) },
           ],

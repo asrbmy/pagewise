@@ -71,6 +71,10 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         navigateFallback: 'index.html',
         cleanupOutdatedCaches: true,
+        // The PDF text-selection font is large and rarely needed: cache it the first time it is used.
+        runtimeCaching: [
+          { urlPattern: /\/fonts\/.*\.ttf$/, handler: 'CacheFirst', options: { cacheName: 'pagewise-fonts', expiration: { maxEntries: 2 } } },
+        ],
       },
     }),
   ],

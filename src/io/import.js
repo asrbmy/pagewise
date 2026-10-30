@@ -4,6 +4,7 @@
  * Every importer resolves to `{ title, html, warnings }`.
  */
 import { sanitizeHtml } from './sanitize.js';
+import { embedColorsInDocx, makeTransform, styleMapRules, applyFormatting } from './wordFormat.js';
 
 export const MAX_IMPORT_BYTES = 40 * 1024 * 1024;
 export const IMPORT_ACCEPT = '.docx,.txt,.md,.markdown,.html,.htm,text/plain,text/markdown,text/html';
@@ -42,22 +43,28 @@ async function importDocx(file) {
     );
   }
   const mammoth = (await import('mammoth')).default || (await import('mammoth'));
-  const arrayBuffer = await file.arrayBuffer();
+  const original = await file.arrayBuffer();
+  const arrayBuffer = await embedColorsInDocx(original);
+  // Browsers use `arrayBuffer`; mammoth's Node build (used by the test-suite) wants `buffer`.
+  const input = (buf) => ({ arrayBuffer: buf, ...(typeof Buffer !== 'undefined' ? { buffer: Buffer.from(buf) } : {}) });
+  const baseStyles = [
+    "p[style-name='Title'] => h1:fresh",
+    "p[style-name='Subtitle'] => h2:fresh",
+    "p[style-name='Quote'] => blockquote:fresh",
+    "p[style-name='Intense Quote'] => blockquote:fresh",
+    'u => u',
+  ];
   let result;
+  let table = new Map();
   try {
-    result = await mammoth.convertToHtml(
-      // Browsers use `arrayBuffer`; mammoth's Node build (used by the test-suite) wants `buffer`.
-      { arrayBuffer, ...(typeof Buffer !== 'undefined' ? { buffer: Buffer.from(arrayBuffer) } : {}) },
-      {
-        styleMap: [
-          "p[style-name='Title'] => h1:fresh",
-          "p[style-name='Subtitle'] => h2:fresh",
-          "p[style-name='Quote'] => blockquote:fresh",
-          "p[style-name='Intense Quote'] => blockquote:fresh",
-          'u => u',
-        ],
-      },
-    );
+    // Pass 1 discovers the distinct formatting combinations; pass 2 renders them.
+    const probe = new Map();
+    await mammoth.convertToHtml(input(arrayBuffer), { styleMap: baseStyles, transformDocument: makeTransform(probe) });
+    table = probe;
+    result = await mammoth.convertToHtml(input(arrayBuffer), {
+      styleMap: [...styleMapRules(table), ...baseStyles],
+      transformDocument: makeTransform(new Map(table)),
+    });
   } catch (err) {
     throw new ImportError(`This .docx file could not be read (${err.message || 'it may be corrupted or password-protected'}).`);
   }
@@ -71,9 +78,9 @@ async function importDocx(file) {
     }
   });
   warnings.push(
-    'Imported as content only: fonts, colours, font sizes, alignment, headers/footers, comments and page layout from the Word file are not carried over.',
+    'Imported text formatting (bold, italic, colours, highlights, fonts, sizes, alignment) is kept where it was applied directly to the text. Formatting that comes from Word styles, plus headers/footers, comments, columns and page layout, is not carried over.',
   );
-  return { html: sanitizeHtml(result.value) || '<p></p>', warnings };
+  return { html: sanitizeHtml(applyFormatting(result.value, table)) || '<p></p>', warnings };
 }
 
 /** Pick an importer from the file name / type. */

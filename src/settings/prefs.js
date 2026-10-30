@@ -12,6 +12,7 @@ export const DEFAULT_PREFS = {
   pageSize: 'letter', // default for new documents: 'letter' | 'a4'
   sort: 'modified-desc',
   showStatusBar: true,
+  pagination: true, // keep text from running across page gaps in the editor
   dismissedStorageNotice: false,
   lastBackupAt: 0, // ms timestamp of the last backup file the user downloaded
   backupSnoozedUntil: 0,

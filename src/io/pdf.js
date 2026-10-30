@@ -95,6 +95,18 @@ export function collectWords(root) {
   return words;
 }
 
+/** Scripts and symbol blocks the bundled DejaVu Sans covers (Latin extended, Greek, Cyrillic, Hebrew, Arabic, symbols). */
+const UNICODE_OK = /[\u0000-\u06ff\u0750-\u077f\u1e00-\u1fff\u2000-\u2bff\ufb00-\ufdff\ufe70-\ufeff]/;
+const LATIN1_OR_PUNCT = /^[\u0000-\u00ff\u2018\u2019\u201c\u201d\u2013\u2014\u2026]*$/;
+
+/** True when the text needs more than the standard PDF fonts to be selectable. */
+export const needsUnicodeFont = (text) => !LATIN1_OR_PUNCT.test(text);
+
+/** Characters the Unicode font can carry; everything else (e.g. CJK) is left out of the text layer. */
+export function toUnicodeText(text) {
+  return Array.from(text.replace(/[\u0000-\u001f\u007f-\u009f]/g, '')).filter((c) => UNICODE_OK.test(c)).join('');
+}
+
 /** Keep only characters a standard PDF font (WinAnsi) can draw. */
 export function toLatin1(text) {
   return text.replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"').replace(/[\u2013\u2014]/g, '-').replace(/\u2026/g, '...').replace(/[^\x20-\x7e\xa0-\xff]/g, '');
@@ -128,13 +140,30 @@ async function renderBatches(host, nodes, html2canvas, widthPx) {
   return canvases;
 }
 
+const UNICODE_FONT = 'DejaVuSans';
+let fontBinary = null;
+
+/** Fetch the bundled font once (a ~750 KB file served with the app, cached for offline use). */
+async function loadUnicodeFont() {
+  if (!fontBinary) {
+    const url = `${import.meta.env.BASE_URL}fonts/DejaVuSans.ttf`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`font request failed (${res.status})`);
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    fontBinary = bin;
+  }
+  return fontBinary;
+}
+
 /** Invisible, selectable text over the slice of the page image covering canvas rows [srcY, srcY + sliceH). */
-function addTextLayer(pdf, words, srcY, sliceH, ptPerPx, left, top) {
-  pdf.setFont('helvetica', 'normal');
+function addTextLayer(pdf, words, srcY, sliceH, ptPerPx, left, top, unicode) {
+  pdf.setFont(unicode ? UNICODE_FONT : 'helvetica', 'normal');
   for (const w of words) {
     const mid = w.y + w.h / 2;
     if (mid < srcY || mid >= srcY + sliceH) continue;
-    const t = toLatin1(w.t);
+    const t = unicode ? toUnicodeText(w.t) : toLatin1(w.t);
     if (!t) continue;
     const boxW = w.w * ptPerPx;
     const boxH = w.h * ptPerPx;
@@ -191,6 +220,21 @@ export async function buildPdf({ title, html, pageSize = 'letter', layout }) {
   const warnings = [];
   if (/<img[^>]+src="https?:/i.test(safe)) warnings.push('Images linked from the web may be missing from the PDF (browsers block reading them). Uploaded images are included.');
 
+  let unicode = false;
+  const plain = new DOMParser().parseFromString(`<body>${safe}</body>`, 'text/html').body.textContent || '';
+  if (needsUnicodeFont(plain)) {
+    try {
+      pdf.addFileToVFS('DejaVuSans.ttf', await loadUnicodeFont());
+      pdf.addFont('DejaVuSans.ttf', UNICODE_FONT, 'normal');
+      unicode = true;
+    } catch {
+      warnings.push('The text-selection font could not be loaded, so text outside basic Latin cannot be selected in this PDF. It still looks correct.');
+    }
+  }
+  if (unicode && /[\u2e80-\u9fff\uac00-\ud7af\uf900-\ufaff\u3040-\u30ff]/.test(plain)) {
+    warnings.push('Chinese, Japanese and Korean text is shown correctly in the PDF but cannot be selected or searched there.');
+  }
+
   const host = document.createElement('div');
   host.setAttribute('aria-hidden', 'true');
   // Rendered behind the app (z-index -1) rather than off-screen: html2canvas captures blank output
@@ -238,7 +282,7 @@ export async function buildPdf({ title, html, pageSize = 'letter', layout }) {
           sctx.fillRect(0, 0, slice.width, slice.height);
           sctx.drawImage(canvas, 0, srcY, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
           pdf.addImage(slice.toDataURL('image/jpeg', 0.92), 'JPEG', MARGIN_PT, y, contentW, sliceH * ptPerPx, undefined, 'FAST');
-          addTextLayer(pdf, words, srcY, sliceH, ptPerPx, MARGIN_PT, y);
+          addTextLayer(pdf, words, srcY, sliceH, ptPerPx, MARGIN_PT, y, unicode);
           y += sliceH * ptPerPx;
           srcY += sliceH;
           firstOnPage = false;

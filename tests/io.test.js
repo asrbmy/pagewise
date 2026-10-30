@@ -293,3 +293,52 @@ describe('header, footer and page numbers', () => {
     expect(out).not.toContain('<b>H</b>');
   });
 });
+
+describe('Word import keeps direct formatting', () => {
+  const FORMATTED = '<h1 style="text-align: center">Centred title</h1><p style="text-align: right">Right <span style="color: #b91c1c">red</span> <mark data-color="#ffff00" style="background-color: #ffff00">marked</mark> <span style="font-family: Georgia, serif; font-size: 18pt">big serif</span></p><p style="text-align: justify">Justified <strong>bold</strong></p><ul><li><p style="text-align: center">listed</p></li></ul>';
+
+  it('round-trips colour, highlight, font, size and alignment through export and import', async () => {
+    const { file } = await docxFile(FORMATTED);
+    const { html } = await importFile(file);
+    expect(html).toMatch(/<h1[^>]*text-align: center[^>]*>Centred title/);
+    expect(html).toMatch(/text-align: right/);
+    expect(html).toMatch(/color: #b91c1c[^>]*>red/);
+    expect(html).toMatch(/<mark[^>]*>marked/);
+    expect(html).toMatch(/font-size: 18pt/);
+    expect(html).toMatch(/font-family: Georgia/);
+    expect(html).toMatch(/text-align: justify/);
+    expect(html).toContain('<strong>bold</strong>');
+    expect(html).toContain('<ul>');
+    expect(html).not.toMatch(/class="pw\d/);
+  });
+
+  it('plain documents import unchanged', async () => {
+    const { file } = await docxFile('<h2>Plain</h2><p>Just text</p>');
+    const { html } = await importFile(file);
+    expect(html).toMatch(/<h2>Plain<\/h2>/);
+    expect(html).toContain('<p>Just text</p>');
+  });
+
+  it('never lets font names inject CSS', async () => {
+    const { embedColors, makeTransform, applyFormatting } = await import('../src/io/wordFormat.js');
+    expect(embedColors('<w:rPr><w:color w:val="FF0000"/></w:rPr>')).toContain('pwc=FF0000;');
+    const table = new Map();
+    makeTransform(table)({ type: 'document', children: [{ type: 'run', font: 'Evil;} body{display:none', fontSize: 11, children: [] }] });
+    expect(table.size).toBe(0);
+    expect(applyFormatting('<p>x</p>', new Map())).toBe('<p>x</p>');
+  });
+});
+
+describe('PDF Unicode text layer', () => {
+  it('decides when the extra font is needed and which characters it can carry', async () => {
+    const { needsUnicodeFont, toUnicodeText } = await import('../src/io/pdf.js');
+    expect(needsUnicodeFont('Plain café “quoted” – ok…')).toBe(false);
+    expect(needsUnicodeFont('Привет')).toBe(true);
+    expect(needsUnicodeFont('你好')).toBe(true);
+    expect(toUnicodeText('Привет')).toBe('Привет');
+    expect(toUnicodeText('Γειά')).toBe('Γειά');
+    expect(toUnicodeText('مرحبا')).toBe('مرحبا');
+    expect(toUnicodeText('a你好b')).toBe('ab');
+    expect(toUnicodeText('a\u0000b\u0085c')).toBe('abc');
+  });
+});

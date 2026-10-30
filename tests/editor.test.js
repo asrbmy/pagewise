@@ -206,3 +206,31 @@ describe('table of contents', () => {
     expect(editor.getText()).toContain('Add headings');
   });
 });
+
+describe('pagination planning', () => {
+  it('moves a block that would straddle a page edge to the next page', async () => {
+    const { planSpacers } = await import('../src/editor/extensions/pagination.js');
+    const geo = { pageHeight: 1000, margin: 100 }; // content area 100..900 on page 1, 1100..1900 on page 2
+    // a 300px block starting at 800 would end at 1100 (past 900): push to 1100
+    const out = planSpacers([{ top: 100, height: 600, spacer: 0 }, { top: 710, height: 300, spacer: 0 }], geo);
+    expect(out).toEqual([0, 390]);
+  });
+  it('leaves blocks that fit, and blocks taller than a page, alone', async () => {
+    const { planSpacers } = await import('../src/editor/extensions/pagination.js');
+    const geo = { pageHeight: 1000, margin: 100 };
+    expect(planSpacers([{ top: 100, height: 700, spacer: 0 }, { top: 800, height: 50, spacer: 0 }], geo)).toEqual([0, 0]);
+    expect(planSpacers([{ top: 500, height: 2000, spacer: 0 }], geo)).toEqual([0]);
+  });
+  it('is stable when run again on its own output', async () => {
+    const { planSpacers } = await import('../src/editor/extensions/pagination.js');
+    const geo = { pageHeight: 1000, margin: 100 };
+    const first = planSpacers([{ top: 100, height: 600, spacer: 0 }, { top: 710, height: 300, spacer: 0 }], geo);
+    const again = planSpacers([{ top: 100, height: 600, spacer: 0 }, { top: 710 + first[1], height: 300, spacer: first[1] }], geo);
+    expect(again).toEqual(first);
+  });
+  it('starts the block after a hard page break on the next page', async () => {
+    const { planSpacers } = await import('../src/editor/extensions/pagination.js');
+    const geo = { pageHeight: 1000, margin: 100 };
+    expect(planSpacers([{ top: 100, height: 200, spacer: 0, isBreak: true }, { top: 310, height: 40, spacer: 0 }], geo)).toEqual([0, 790]);
+  });
+});

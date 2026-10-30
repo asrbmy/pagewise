@@ -104,21 +104,22 @@ Key design points:
 | mammoth | `.docx` import |
 | marked, turndown (+gfm) | Markdown import/export |
 | jspdf, html2canvas | PDF export |
+| jszip | reading .docx packages (Word import formatting) |
 | dompurify | sanitising pasted/imported HTML |
 | vite, vite-plugin-pwa | build, service worker |
 | vitest, jsdom, fake-indexeddb | tests |
 
 ## Known limitations
 
-- **PDF export** draws each page as an image with an invisible text layer on top, so Latin-script text can be selected, copied and searched. Other scripts (e.g. Chinese, Arabic) are not in the text layer, and the file is larger than a vector PDF. For true vector text use Print → Save as PDF.
-- **DOCX import** keeps structure (headings, lists, tables, bold/italic, images) but drops fonts, colours, headers/footers, comments, tracked changes and page layout. **DOCX export** is an approximation of the on-screen layout.
-- Page counts are approximate; there is no true on-screen pagination, so page numbers appear only in print/PDF/Word/HTML output.
+- **PDF export** draws each page as an image with an invisible text layer on top, so text can be selected, copied and searched: Latin, Greek, Cyrillic, Hebrew and Arabic use a bundled font (DejaVu Sans, loaded only when needed). Chinese, Japanese and Korean text looks right but is not selectable, and Arabic/Hebrew selection follows the stored character order. The file is larger than a vector PDF. For true vector text use Print → Save as PDF.
+- **DOCX import** keeps structure (headings, lists, tables, images) and text formatting applied directly in Word: bold, italic, underline, colours, highlights, fonts, sizes and alignment. Formatting that only comes from Word *styles*, plus headers/footers, comments, tracked changes, columns and page layout, is dropped. **DOCX export** is an approximation of the on-screen layout.
+- **Pages on screen** are kept from straddling the page edge (View → Show page gaps): paragraphs, lists and tables that fit on a page are moved whole to the next page. Blocks taller than a page still run across the edge, and print, PDF and Word export lay pages out on their own, so their breaks can differ slightly. Page numbers appear only in print/PDF/Word/HTML output.
 - Version history, like documents, lives only in this browser and is not included in backup files.
 - Not built: comments, footnotes, drawings, equations, folders, encryption and sync.
 - No real-time collaboration, sync, or encryption.
 - Browser storage quotas apply; large embedded images are downscaled to 1600 px.
 - Mobile fit-to-width uses a reflow view because a full page would be unreadable at phone width.
-- **Tiptap 3**: the project uses Tiptap 3.x (the 2.x line has advisory GHSA-cp6q-959q-f8rh). `npm audit` still reports issues in dev-only tooling (vitest); these do not ship in the built site.
+- **Dependencies**: the project uses Tiptap 3.x (the 2.x line has advisory GHSA-cp6q-959q-f8rh). `npm audit` reports 4 *low* findings from `deepmerge` inside `workbox-build` (build tool of vite-plugin-pwa 2.0.0, already the latest release); no fixed version exists, and it never ships in the site. Recheck after vite-plugin-pwa updates.
 
 ## Troubleshooting
 
@@ -130,3 +131,7 @@ Key design points:
 ## License
 
 Provide your own license before publishing.
+
+## Third-party assets
+
+- `public/fonts/DejaVuSans.ttf` (DejaVu Sans, Bitstream Vera / public-domain licence, see `public/fonts/DejaVu-LICENSE.txt`) is used only to make non-Latin PDF text selectable.
