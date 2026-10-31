@@ -9,17 +9,23 @@
  * Runtime failures (quota exceeded, transaction aborted…) are surfaced as
  * `StorageError` with a human-readable message and a machine-readable `code`.
  */
+import { deriveKey, newSalt, encryptJson, decryptJson, fromB64, cryptoAvailable, DEFAULT_ITERATIONS, MIN_PASSWORD } from './crypto.js';
 import { openDB } from 'idb';
 import { normalizeLayout } from '../editor/layout.js';
+import { stripComments } from '../io/prepare.js';
+import { normalizeComments } from '../editor/comments.js';
 import { htmlToPlainText, countWords, countCharacters, makeSnippet } from './text.js';
 
 export const DB_NAME = 'pagewise';
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
+export const FOLDERS = 'folders';
 export const STORE = 'documents';
 export const VERSIONS = 'versions';
 export const MAX_AUTO_VERSIONS = 40;
 export const AUTO_VERSION_INTERVAL = 10 * 60 * 1000;
 export const EMPTY_HTML = '<p></p>';
+// Lowered by tests; real use keeps the default.
+export const cryptoSettings = { iterations: DEFAULT_ITERATIONS };
 
 export class StorageError extends Error {
   constructor(message, code = 'unknown', cause) {
@@ -73,6 +79,7 @@ export class DocumentStore {
     this.dbName = dbName;
     this.memory = new Map();
     this.memoryVersions = new Map();
+    this.memoryFolders = new Map();
     this.persistent = false;
     this.initError = null;
     this._ready = null;
@@ -106,6 +113,7 @@ export class DocumentStore {
                 const versions = db.createObjectStore(VERSIONS, { keyPath: 'vid' });
                 versions.createIndex('docId', 'docId');
               }
+              if (oldVersion < 3) db.createObjectStore(FOLDERS, { keyPath: 'id' });
             },
           });
           this.persistent = true;
@@ -118,6 +126,8 @@ export class DocumentStore {
     }
     return this._ready;
   }
+
+  _keys = new Map();
 
   async _getAll() {
     await this.init();
@@ -166,7 +176,7 @@ export class DocumentStore {
   }
 
   /** Create and persist a new document. */
-  async createDocument({ title = 'Untitled document', html = EMPTY_HTML, pageSize = 'letter', layout } = {}) {
+  async createDocument({ title = 'Untitled document', html = EMPTY_HTML, pageSize = 'letter', layout, folderId = null } = {}) {
     const now = Date.now();
     const text = htmlToPlainText(html);
     const doc = {
@@ -178,6 +188,7 @@ export class DocumentStore {
       charCount: countCharacters(text),
       pageSize,
       layout: normalizeLayout(layout),
+      folderId,
       createdAt: now,
       updatedAt: now,
     };
@@ -188,7 +199,78 @@ export class DocumentStore {
   /** Full document (including HTML) or null. */
   async getDocument(id) {
     const doc = await this._get(id);
-    return doc || null;
+    if (!doc) return null;
+    if (doc.locked && this._keys.has(id)) {
+      try {
+        const { html, comments } = await decryptJson(this._keys.get(id).key, doc.crypto);
+        return { ...doc, html, comments: normalizeComments(comments), unlocked: true };
+      } catch {
+        this._keys.delete(id);
+        return doc;
+      }
+    }
+    return doc;
+  }
+
+  hasKey(id) {
+    return this._keys.has(id);
+  }
+
+  /** Forget the key so the document must be unlocked again. */
+  forgetKey(id) {
+    this._keys.delete(id);
+  }
+
+  /** Encrypt a document with a password. Its history is deleted (it would hold plaintext). */
+  lockDocument(id, password) {
+    return this._serial(async () => {
+      if (!cryptoAvailable()) throw new StorageError('This browser cannot encrypt documents (Web Crypto is unavailable).', 'crypto');
+      if (typeof password !== 'string' || password.length < MIN_PASSWORD) throw new StorageError(`Use a password of at least ${MIN_PASSWORD} characters.`, 'weak-password');
+      const doc = await this._get(id);
+      if (!doc) throw new StorageError('This document no longer exists in browser storage.', 'missing');
+      if (doc.locked) throw new StorageError('This document is already locked.', 'locked');
+      const salt = newSalt();
+      const iterations = cryptoSettings.iterations;
+      const key = await deriveKey(password, salt, iterations);
+      const blob = await encryptJson(key, { html: doc.html, comments: doc.comments || [] }, salt, iterations);
+      const next = { ...doc, html: EMPTY_HTML, text: '', wordCount: 0, charCount: 0, comments: [], locked: true, crypto: blob };
+      await this._put(next);
+      await this._deleteVersionsOf(id);
+      this._keys.set(id, { key, salt, iterations });
+      return next;
+    });
+  }
+
+  /** Unlock for this session. Throws StorageError('wrong-password') on a bad password. */
+  async unlockDocument(id, password) {
+    const doc = await this._get(id);
+    if (!doc) throw new StorageError('This document no longer exists in browser storage.', 'missing');
+    if (!doc.locked) return doc;
+    const salt = fromB64(doc.crypto.salt);
+    const key = await deriveKey(String(password), salt, doc.crypto.iterations);
+    try {
+      await decryptJson(key, doc.crypto);
+    } catch {
+      throw new StorageError('That password is not correct.', 'wrong-password');
+    }
+    this._keys.set(id, { key, salt, iterations: doc.crypto.iterations });
+    return this.getDocument(id);
+  }
+
+  /** Permanently remove the password (requires the document to be unlocked). */
+  removeLock(id) {
+    return this._serial(async () => {
+      const doc = await this._get(id);
+      if (!doc || !doc.locked) return doc;
+      if (!this._keys.has(id)) throw new StorageError('Unlock the document first.', 'locked');
+      const { html, comments } = await decryptJson(this._keys.get(id).key, doc.crypto);
+      const text = htmlToPlainText(html);
+      const { crypto: _c, locked: _l, ...rest } = doc; // eslint-disable-line no-unused-vars
+      const next = { ...rest, html, text, wordCount: countWords(text), charCount: countCharacters(text), comments: normalizeComments(comments) };
+      await this._put(next);
+      this._keys.delete(id);
+      return next;
+    });
   }
 
   /**
@@ -202,6 +284,7 @@ export class DocumentStore {
   async _saveDocument(id, changes) {
     const existing = await this._get(id);
     if (!existing) throw new StorageError('This document no longer exists in browser storage.', 'missing');
+    if (existing.locked) return this._saveLocked(existing, changes);
     const next = { ...existing, ...changes };
     if (typeof changes.html === 'string') {
       next.text = htmlToPlainText(changes.html);
@@ -209,10 +292,38 @@ export class DocumentStore {
       next.charCount = countCharacters(next.text);
     }
     if ('layout' in changes) next.layout = normalizeLayout(changes.layout);
+    if ('comments' in changes) next.comments = normalizeComments(changes.comments);
     if (typeof changes.title === 'string') next.title = changes.title.trim() || 'Untitled document';
     next.updatedAt = changes.updatedAt || Date.now();
     await this._put(next);
     return next;
+  }
+
+  async _saveLocked(existing, changes) {
+    const entry = this._keys.get(existing.id);
+    const touchesContent = typeof changes.html === 'string' || 'comments' in changes;
+    if (!entry && touchesContent) throw new StorageError('This document is locked. Unlock it to keep editing.', 'locked');
+    const { html: _h, comments: _c, ...meta } = changes; // eslint-disable-line no-unused-vars
+    const next = { ...existing, ...meta, html: EMPTY_HTML, text: '', comments: [] };
+    let payload = null;
+    if (entry && touchesContent) {
+      const current = await decryptJson(entry.key, existing.crypto);
+      payload = {
+        html: typeof changes.html === 'string' ? changes.html : current.html,
+        comments: 'comments' in changes ? normalizeComments(changes.comments) : current.comments || [],
+      };
+      next.crypto = await encryptJson(entry.key, payload, entry.salt, entry.iterations);
+    }
+    if ('layout' in changes) next.layout = normalizeLayout(changes.layout);
+    if (typeof changes.title === 'string') next.title = changes.title.trim() || 'Untitled document';
+    if (typeof changes.html === 'string') {
+      const text = htmlToPlainText(changes.html);
+      next.wordCount = countWords(text);
+      next.charCount = countCharacters(text);
+    }
+    next.updatedAt = changes.updatedAt || Date.now();
+    await this._put(next);
+    return payload ? { ...next, html: payload.html, comments: payload.comments, unlocked: true } : next;
   }
 
   async renameDocument(id, title) {
@@ -222,12 +333,85 @@ export class DocumentStore {
   async duplicateDocument(id) {
     const src = await this._get(id);
     if (!src) throw new StorageError('The document to copy was not found.', 'missing');
-    return this.createDocument({ title: `Copy of ${src.title}`, html: src.html, pageSize: src.pageSize, layout: src.layout });
+    if (src.locked) {
+      // The copy keeps the same password; the ciphertext is copied as is.
+      const copy = await this.createDocument({ title: `Copy of ${src.title}`, pageSize: src.pageSize, layout: src.layout, folderId: src.folderId });
+      const next = { ...copy, locked: true, crypto: src.crypto, wordCount: src.wordCount, charCount: src.charCount };
+      await this._put(next);
+      return next;
+    }
+    return this.createDocument({ title: `Copy of ${src.title}`, html: stripComments(src.html), pageSize: src.pageSize, layout: src.layout, folderId: src.folderId });
   }
 
   async deleteDocument(id) {
     await this._delete(id);
     await this._deleteVersionsOf(id);
+  }
+
+  // ------------------------------------------------------------ folders
+
+  async listFolders() {
+    await this.init();
+    try {
+      const all = this._db ? await this._db.getAll(FOLDERS) : [...this.memoryFolders.values()];
+      return all.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    } catch (err) {
+      throw classify(err);
+    }
+  }
+
+  async _putFolder(f) {
+    await this.init();
+    try {
+      if (this._db) await this._db.put(FOLDERS, f);
+      else this.memoryFolders.set(f.id, f);
+    } catch (err) {
+      throw classify(err);
+    }
+  }
+
+  async createFolder(name) {
+    const clean = String(name || '').trim().slice(0, 60);
+    if (!clean) throw new StorageError('Give the folder a name.', 'invalid');
+    const existing = await this.listFolders();
+    if (existing.some((f) => f.name.toLowerCase() === clean.toLowerCase())) throw new StorageError(`A folder named "${clean}" already exists.`, 'invalid');
+    const folder = { id: newId(), name: clean, createdAt: Date.now() };
+    await this._putFolder(folder);
+    return folder;
+  }
+
+  async renameFolder(id, name) {
+    const clean = String(name || '').trim().slice(0, 60);
+    if (!clean) throw new StorageError('Give the folder a name.', 'invalid');
+    const all = await this.listFolders();
+    const folder = all.find((f) => f.id === id);
+    if (!folder) throw new StorageError('That folder no longer exists.', 'missing');
+    if (all.some((f) => f.id !== id && f.name.toLowerCase() === clean.toLowerCase())) throw new StorageError(`A folder named "${clean}" already exists.`, 'invalid');
+    const next = { ...folder, name: clean };
+    await this._putFolder(next);
+    return next;
+  }
+
+  /** Delete a folder. Its documents are kept and become unfiled. */
+  async deleteFolder(id) {
+    const docs = (await this._getAll()).filter((d) => d.folderId === id);
+    for (const d of docs) await this.setFolder(d.id, null); // eslint-disable-line no-await-in-loop
+    await this.init();
+    try {
+      if (this._db) await this._db.delete(FOLDERS, id);
+      else this.memoryFolders.delete(id);
+    } catch (err) {
+      throw classify(err);
+    }
+  }
+
+  /** Move a document into a folder (or out of all folders with null) without touching its modified date. */
+  async setFolder(docId, folderId) {
+    if (folderId) {
+      const exists = (await this.listFolders()).some((f) => f.id === folderId);
+      if (!exists) throw new StorageError('That folder no longer exists.', 'missing');
+    }
+    return this.saveDocument(docId, { folderId: folderId || null, updatedAt: (await this._get(docId))?.updatedAt });
   }
 
   // ------------------------------------------------------------ version history
@@ -254,6 +438,8 @@ export class DocumentStore {
    */
   addVersion(docId, { html, title, label = '' }) {
     return this._serial(async () => {
+      const owner = await this._get(docId);
+      if (owner && owner.locked) return null; // snapshots would hold plaintext
       const all = (await this._versionsOf(docId)).sort((a, b) => b.createdAt - a.createdAt);
       if (all[0] && all[0].html === html && !label) return null;
       const text = htmlToPlainText(html);
@@ -329,11 +515,12 @@ export class DocumentStore {
    * List document summaries. `query` matches title and content (case-insensitive).
    * @param {{query?: string, sort?: keyof typeof SORTS}} opts
    */
-  async listDocuments({ query = '', sort = 'modified-desc' } = {}) {
+  async listDocuments({ query = '', sort = 'modified-desc', folder = 'all' } = {}) {
     const all = await this._getAll();
     const q = query.trim().toLowerCase();
     const cmp = (SORTS[sort] || SORTS['modified-desc']).cmp;
     return all
+      .filter((d) => folder === 'all' || (folder === 'none' ? !d.folderId : d.folderId === folder))
       .filter((d) => !q || d.title.toLowerCase().includes(q) || (d.text || '').toLowerCase().includes(q))
       .sort(cmp)
       .map((d) => toSummary(d, q));
@@ -353,12 +540,24 @@ export class DocumentStore {
    * copies so nothing is ever overwritten.
    * @returns {Promise<{added:number, copied:number}>}
    */
-  async importAll(docs) {
+  async importAll(docs, folders = []) {
     let added = 0;
     let copied = 0;
+    // Folders are matched by name so a restore never creates duplicates of an existing folder.
+    const have = await this.listFolders();
+    const idMap = new Map();
+    for (const f of folders) {
+      const same = have.find((h) => h.name.toLowerCase() === f.name.toLowerCase());
+      if (same) idMap.set(f.id, same.id);
+      else {
+        const made = await this.createFolder(f.name); // eslint-disable-line no-await-in-loop
+        have.push(made);
+        idMap.set(f.id, made.id);
+      }
+    }
     for (const d of docs) {
       const exists = await this._get(d.id);
-      const doc = { ...d };
+      const doc = { ...d, folderId: d.folderId && idMap.has(d.folderId) ? idMap.get(d.folderId) : null };
       if (!doc.id || exists) {
         doc.id = newId();
         if (exists) {

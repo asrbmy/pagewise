@@ -1,6 +1,7 @@
 /** Theme handling: applies data-theme on <html> and follows the OS when set to "system". */
 import { useEffect } from 'react';
 import { usePrefs } from './prefs.js';
+import { applyDocumentLanguage } from '../i18n/index.js';
 
 export function resolveTheme(theme, prefersDark) {
   if (theme === 'light' || theme === 'dark') return theme;
@@ -8,7 +9,8 @@ export function resolveTheme(theme, prefersDark) {
 }
 
 export function useTheme() {
-  const { theme } = usePrefs();
+  const { theme, language } = usePrefs();
+  useEffect(() => applyDocumentLanguage(language), [language]);
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const apply = () => {

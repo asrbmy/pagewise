@@ -1,3 +1,4 @@
+import { useT, LANGUAGES } from '../i18n/index.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { store, SORTS } from '../storage/documents.js';
 import { exportAndDownload, EXPORTERS } from '../io/export.js';
@@ -11,11 +12,12 @@ import { PrivacyDialog, AboutDialog } from '../components/InfoDialogs.jsx';
 import { useToast } from '../components/Toasts.jsx';
 import { usePwaState, promptInstall } from '../pwa/register.js';
 import { downloadBackup, backupReminderDue } from '../io/backup.js';
+import MoveDialog from '../components/MoveDialog.jsx';
 import TemplateDialog from '../components/TemplateDialog.jsx';
 import { createNewDocument, createFromTemplate, importIntoNewDocument, openDocument } from './actions.js';
 import { formatModified, formatFull } from './format.js';
 
-function CardMenu({ doc, onOpen, onRename, onCopy, onDownload, onDelete }) {
+function CardMenu({ doc, onOpen, onRename, onCopy, onMove, onDownload, onDelete }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useDismiss(ref, () => setOpen(false), open);
@@ -42,6 +44,7 @@ function CardMenu({ doc, onOpen, onRename, onCopy, onDownload, onDelete }) {
           {item('Open', onOpen)}
           {item('Rename', onRename)}
           {item('Make a copy', onCopy)}
+          {item('Move to folder…', onMove)}
           <div className="menu-separator" role="separator" />
           <div className="menu-heading" role="presentation">
             Download as
@@ -58,8 +61,10 @@ function CardMenu({ doc, onOpen, onRename, onCopy, onDownload, onDelete }) {
 export default function HomePage() {
   const toast = useToast();
   const prefs = usePrefs();
+  const t = useT();
   const pwa = usePwaState();
   const [docs, setDocs] = useState(null);
+  const [folders, setFolders] = useState([]);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
@@ -75,12 +80,16 @@ export default function HomePage() {
   const load = useCallback(async () => {
     try {
       setError('');
-      setDocs(await store.listDocuments({ query: debounced, sort: prefs.sort }));
+      const list = await store.listFolders();
+      setFolders(list);
+      const active = prefs.folder === 'all' || prefs.folder === 'none' || list.some((f) => f.id === prefs.folder) ? prefs.folder : 'all';
+      if (active !== prefs.folder) setPrefs({ folder: active });
+      setDocs(await store.listDocuments({ query: debounced, sort: prefs.sort, folder: active }));
     } catch (err) {
       setError(err.message || 'Could not read your documents.');
       setDocs([]);
     }
-  }, [debounced, prefs.sort]);
+  }, [debounced, prefs.sort, prefs.folder]);
 
   useEffect(() => {
     load();
@@ -101,8 +110,37 @@ export default function HomePage() {
     }
   };
 
-  const create = () => guard(async () => openDocument((await createNewDocument()).id));
-  const createTemplate = (id) => guard(async () => openDocument((await createFromTemplate(id)).id));
+  const currentFolder = folders.find((f) => f.id === prefs.folder) || null;
+  const create = () => guard(async () => openDocument((await createNewDocument(currentFolder?.id)).id));
+  const createTemplate = (id) => guard(async () => openDocument((await createFromTemplate(id, currentFolder?.id)).id));
+
+  const addFolder = (name) =>
+    guard(async () => {
+      const f = await store.createFolder(name);
+      setDialog(null);
+      setPrefs({ folder: f.id });
+      toast(`Created folder "${f.name}".`, { kind: 'success' });
+    });
+  const renameFolder = (name) =>
+    guard(async () => {
+      await store.renameFolder(currentFolder.id, name);
+      setDialog(null);
+      await load();
+    });
+  const removeFolder = () =>
+    guard(async () => {
+      const name = currentFolder.name;
+      await store.deleteFolder(currentFolder.id);
+      setDialog(null);
+      setPrefs({ folder: 'all' });
+      toast(`Deleted folder "${name}". Its documents were kept.`, { kind: 'success' });
+    });
+  const moveDoc = (doc, folderId) =>
+    guard(async () => {
+      await store.setFolder(doc.id, folderId);
+      setDialog(null);
+      await load();
+    });
 
   const importFile = (file) =>
     guard(async () => {
@@ -122,6 +160,10 @@ export default function HomePage() {
   const download = (doc, format) =>
     guard(async () => {
       const full = await store.getDocument(doc.id);
+      if (full.locked && !full.unlocked) {
+        toast('This document is password-protected. Open it and enter the password first.', { kind: 'warning' });
+        return;
+      }
       const pending = toast(`Preparing ${EXPORTERS[format].label}…`, { duration: 0 });
       try {
         const result = await exportAndDownload(format, full);
@@ -158,26 +200,34 @@ export default function HomePage() {
         </div>
         <div className="search">
           <Icon name="search" />
-          <input type="search" className="search-input" placeholder="Search titles and contents" aria-label="Search documents" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input type="search" className="search-input" placeholder={t('Search titles and contents')} aria-label={t('Search documents')} value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
         <div className="top-actions">
           {pwa.canInstall && (
             <button type="button" className="btn btn-small" onClick={promptInstall}>
-              Install app
+              {t('Install app')}
             </button>
           )}
-          <button type="button" className="icon-btn" aria-label="Privacy and storage" title="Privacy and storage" onClick={() => setDialog({ type: 'privacy' })}>
+          <button type="button" className="icon-btn" aria-label={t('Privacy and storage')} title={t('Privacy and storage')} onClick={() => setDialog({ type: 'privacy' })}>
             <Icon name="shield" />
           </button>
           <button
             type="button"
             className="icon-btn"
-            aria-label="Switch theme"
-            title="Switch theme"
+            aria-label={t('Switch theme')}
+            title={t('Switch theme')}
             onClick={() => setPrefs({ theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark' })}
           >
             <Icon name={document.documentElement.getAttribute('data-theme') === 'dark' ? 'sun' : 'moon'} />
           </button>
+          <select className="tb-select lang-select" aria-label={t('Language')} title={t('Language')} value={prefs.language} onChange={(e) => setPrefs({ language: e.target.value })}>
+            <option value="auto">{t('Auto')}</option>
+            {LANGUAGES.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.name}
+              </option>
+            ))}
+          </select>
           <button type="button" className="icon-btn" aria-label="About Pagewise" title="About" onClick={() => setDialog({ type: 'about' })}>
             <Icon name="info" />
           </button>
@@ -230,11 +280,11 @@ export default function HomePage() {
 
       <main className="home-main" id="main" tabIndex={-1}>
         <div className="home-actions">
-          <h1>Your documents</h1>
+          <h1>{t('Your documents')}</h1>
           <span className="spacer" />
           <label className="sort">
-            <span className="sr-only">Sort documents by</span>
-            <select className="tb-select" value={prefs.sort} onChange={(e) => setPrefs({ sort: e.target.value })} aria-label="Sort documents">
+            <span className="sr-only">{t('Sort documents by')}</span>
+            <select className="tb-select" value={prefs.sort} onChange={(e) => setPrefs({ sort: e.target.value })} aria-label={t('Sort documents')}>
               {Object.entries(SORTS).map(([id, s]) => (
                 <option key={id} value={id}>
                   {s.label}
@@ -243,10 +293,10 @@ export default function HomePage() {
             </select>
           </label>
           <button type="button" className="btn" onClick={() => importRef.current?.click()} disabled={busy}>
-            <Icon name="upload" /> Import file
+            <Icon name="upload" /> {t('Import file')}
           </button>
           <button type="button" className="btn" onClick={() => setDialog({ type: 'templates' })} disabled={busy}>
-            <Icon name="file" /> Templates
+            <Icon name="file" /> {t('Templates')}
           </button>
           <button type="button" className="btn btn-primary" onClick={create} disabled={busy}>
             <Icon name="filePlus" /> New document
@@ -262,6 +312,20 @@ export default function HomePage() {
             }}
           />
         </div>
+        <nav className="folder-bar" aria-label="Folders">
+          {[{ id: 'all', name: 'All documents' }, { id: 'none', name: 'No folder' }, ...folders].map((f) => (
+            <button key={f.id} type="button" className={`chip${prefs.folder === f.id ? ' is-active' : ''}`} aria-pressed={prefs.folder === f.id} onClick={() => setPrefs({ folder: f.id })}>
+              {f.id !== 'all' && f.id !== 'none' && <Icon name="folder" size={14} />} {f.name}
+            </button>
+          ))}
+          <button type="button" className="chip chip-add" onClick={() => setDialog({ type: 'new-folder' })}>+ New folder</button>
+          {currentFolder && (
+            <>
+              <button type="button" className="link-btn" onClick={() => setDialog({ type: 'rename-folder' })}>{t('Rename folder')}</button>
+              <button type="button" className="link-btn" onClick={() => setDialog({ type: 'delete-folder' })}>{t('Delete folder')}</button>
+            </>
+          )}
+        </nav>
 
         {error && (
           <div className="banner banner-error" role="alert">
@@ -286,15 +350,15 @@ export default function HomePage() {
             {hasQuery ? (
               <>
                 <h2>No documents match "{debounced}"</h2>
-                <p>Search looks at titles and document text. Try a different word.</p>
+                <p>{t('Search looks at titles and document text. Try a different word.')}</p>
                 <button type="button" className="btn" onClick={() => setQuery('')}>
                   Clear search
                 </button>
               </>
             ) : (
               <>
-                <h2>No documents yet</h2>
-                <p>Create a document, or import a Word (.docx), Markdown or text file. Everything stays in this browser.</p>
+                <h2>{t('No documents yet')}</h2>
+                <p>{t('Create a document, or import a Word (.docx), Markdown or text file. Everything stays in this browser.')}</p>
                 <div className="button-row center">
                   <button type="button" className="btn btn-primary" onClick={create} disabled={busy}>
                     <Icon name="filePlus" /> New document
@@ -314,7 +378,7 @@ export default function HomePage() {
               <li key={d.id} className="doc-card">
                 <button type="button" className="doc-open" onClick={() => openDocument(d.id)}>
                   <span className="doc-title">{d.title}</span>
-                  <span className="doc-snippet">{d.snippet || 'Empty document'}</span>
+                  <span className="doc-snippet">{d.locked ? '🔒 ' + t('Password-protected') : d.snippet || t('Empty document')}</span>
                   <span className="doc-meta" title={`Last modified ${formatFull(d.updatedAt)}`}>
                     <Icon name="file" size={14} /> {formatModified(d.updatedAt)} · {d.wordCount.toLocaleString()} word{d.wordCount === 1 ? '' : 's'}
                   </span>
@@ -325,6 +389,7 @@ export default function HomePage() {
                   onRename={() => setDialog({ type: 'rename', doc: d })}
                   onCopy={() => copy(d)}
                   onDownload={(f) => download(d, f)}
+                  onMove={() => setDialog({ type: 'move', doc: d })}
                   onDelete={() => setDialog({ type: 'delete', doc: d })}
                 />
               </li>
@@ -333,12 +398,18 @@ export default function HomePage() {
         )}
       </main>
 
-      <footer className="home-footer">Pagewise keeps documents in your browser only. No accounts, no uploads, no tracking.</footer>
+      <footer className="home-footer">{t('Pagewise keeps documents in your browser only. No accounts, no uploads, no tracking.')}</footer>
 
+      {dialog?.type === 'new-folder' && <PromptDialog title={t('New folder')} label={t('Folder name')} confirmLabel={t('Create')} onSubmit={addFolder} onCancel={() => setDialog(null)} />}
+      {dialog?.type === 'rename-folder' && currentFolder && <PromptDialog title="Rename folder" label="Folder name" initialValue={currentFolder.name} onSubmit={renameFolder} onCancel={() => setDialog(null)} />}
+      {dialog?.type === 'delete-folder' && currentFolder && (
+        <ConfirmDialog title="Delete folder?" message={`"${currentFolder.name}" will be deleted. The documents inside are not deleted; they move to "No folder".`} confirmLabel="Delete folder" danger onConfirm={removeFolder} onCancel={() => setDialog(null)} />
+      )}
+      {dialog?.type === 'move' && <MoveDialog doc={dialog.doc} folders={folders} onMove={(id) => moveDoc(dialog.doc, id)} onClose={() => setDialog(null)} />}
       {dialog?.type === 'templates' && <TemplateDialog busy={busy} onPick={createTemplate} onClose={() => setDialog(null)} />}
       {dialog?.type === 'privacy' && <PrivacyDialog onClose={() => setDialog(null)} onRestored={load} />}
       {dialog?.type === 'about' && <AboutDialog onClose={() => setDialog(null)} />}
-      {dialog?.type === 'rename' && <PromptDialog title="Rename document" label="Document title" initialValue={dialog.doc.title} onCancel={() => setDialog(null)} onSubmit={(t) => rename(dialog.doc, t)} />}
+      {dialog?.type === 'rename' && <PromptDialog title={t('Rename document')} label={t('Document title')} initialValue={dialog.doc.title} onCancel={() => setDialog(null)} onSubmit={(t) => rename(dialog.doc, t)} />}
       {dialog?.type === 'delete' && (
         <ConfirmDialog
           title="Delete this document?"

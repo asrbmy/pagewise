@@ -2,7 +2,7 @@
 
 A private, browser-based document editor. Everything runs in your browser and is stored on your device: no server, no account, no analytics, no uploads. It deploys as a plain static site (GitHub Pages ready).
 
-Pagewise is an original project. It is not affiliated with Google, and files it exports are ordinary `.docx`/`.pdf`/`.html`/`.md`/`.txt` files, not native Google Docs.
+Pagewise is an original project. It is not affiliated with Google, and files it exports are ordinary `.docx`/`.pdf`/`.html`/`.odt`/`.rtf`/`.md`/`.txt` files, not native Google Docs.
 
 ## Quick start
 
@@ -42,13 +42,21 @@ Without `BASE_PATH` the build uses relative asset paths (`./`), which also works
 
 **Header, footer and page numbers**: File → Page setup. They appear in PDF, Word (real page-number field) and web-page export, and in print on Chromium-based browsers (Chrome, Edge). The on-screen sheet shows the header and footer but not page numbers, because it is one continuous sheet.
 
+**Folders**: group documents in folders (home page chips; move via a document's action menu). Deleting a folder keeps its documents.
+
+**Equations, footnotes, drawings, comments**: Insert → Equation (LaTeX, typeset with KaTeX, inline or display), Footnote (auto-numbered, notes listed at the end; exported as numbered notes), Drawing (freehand canvas saved as an image) and Comment (anchored to selected text; View → Comments panel to reply-resolve; comments are stripped from exports and copies).
+
+**Password lock**: File → Lock with password encrypts a document's text and comments in this browser (PBKDF2-SHA256, 600,000 iterations → AES-256-GCM, fresh IV on every save). The title, dates and word count stay readable, a locked document is not searchable, its version history is deleted, and the password is never stored. **A forgotten password cannot be recovered.** Locked documents stay encrypted in backup files and can be unlocked after a restore. Unlocking lasts until you close the tab or use Lock now. Note that images, once decrypted into the editor, are ordinary page content; the lock protects data at rest, not a compromised browser.
+
+**Languages**: English, Spanish and French (picker in the home header; "Auto" follows the browser). The home page, lock screens, editor menus and common labels are translated. Dialog bodies, toolbar tooltips, help and error messages are still English. Add a language by creating `src/i18n/<code>.js` (English text → translation) and listing it in `src/i18n/index.js`.
+
 **Backup reminder**: the home page nudges you when you have never backed up, or the last backup is over two weeks old (snooze for a week).
 
 **Paste cleaning**: Word and web HTML is sanitized, Word lists are converted to real lists, and junk styles are dropped.
 
 **Import**: `.docx`, `.txt`, `.md`/`.markdown`, `.html`. Unsupported features are reported in a notice.
 
-**Export**: `.docx`, `.pdf`, `.html`, `.md`, `.txt`, plus Print. A full JSON backup of all documents can be exported and restored from the home page.
+**Export**: `.docx`, `.pdf`, `.html`, `.odt`, `.rtf`, `.md`, `.txt`, plus Print. Equations are typeset in PDF, print and on screen, and exported as `$LaTeX$` text in Word, ODT, RTF and Markdown. A full JSON backup of all documents can be exported and restored from the home page.
 
 **Offline / PWA**: a service worker caches the app so it loads offline and can be installed.
 
@@ -58,7 +66,7 @@ Without `BASE_PATH` the build uses relative asset paths (`./`), which also works
 
 - No analytics, tracking, or network requests with your content. Production CSP restricts what the page can load.
 - Documents live in IndexedDB; preferences in localStorage. Clearing site data deletes them.
-- Nothing is encrypted at rest and nothing syncs between devices. Use File → Download / Backup for copies.
+- Documents are stored unencrypted unless you lock them (File → Lock with password), and nothing syncs between devices. Use File → Download / Backup for copies.
 - The browser may evict storage under pressure; Pagewise requests persistent storage but this can be denied. Back up important work.
 
 ## Security
@@ -77,8 +85,9 @@ src/
   app/                App (hash router, error boundary), HomePage, EditorPage (autosave, menus, dialogs), actions
   components/         Dialog, MenuBar, Toolbar, EditorDialogs (link/image/table/find/page setup), Toasts, Logo, Icon
   editor/             Tiptap extensions (font size, paragraph format, page break, find/replace), paste cleaning, image handling
-  io/                 import (mammoth, marked), export (docx, pdf, html, md, txt), sanitize (DOMPurify), backup
-  storage/            DocumentStore over IndexedDB (idb) with memory fallback, serial write queue, error classification
+  io/                 import (mammoth, marked), export (docx, pdf, html, odt, rtf, md, txt), sanitize (DOMPurify), backup
+  storage/            DocumentStore over IndexedDB (idb) with memory fallback, serial write queue, error classification; crypto.js (password lock)
+  i18n/               translation layer and dictionaries
   settings/           localStorage preferences and theme
   pwa/                service worker registration and install prompt
   a11y/               focus trap and dismiss helpers
@@ -104,7 +113,8 @@ Key design points:
 | mammoth | `.docx` import |
 | marked, turndown (+gfm) | Markdown import/export |
 | jspdf, html2canvas | PDF export |
-| jszip | reading .docx packages (Word import formatting) |
+| jszip | reading .docx packages (Word import formatting), writing .odt |
+| katex | equation typesetting |
 | dompurify | sanitising pasted/imported HTML |
 | vite, vite-plugin-pwa | build, service worker |
 | vitest, jsdom, fake-indexeddb | tests |
@@ -115,8 +125,8 @@ Key design points:
 - **DOCX import** keeps structure (headings, lists, tables, images) and text formatting applied directly in Word: bold, italic, underline, colours, highlights, fonts, sizes and alignment. Formatting that only comes from Word *styles*, plus headers/footers, comments, tracked changes, columns and page layout, is dropped. **DOCX export** is an approximation of the on-screen layout.
 - **Pages on screen** are kept from straddling the page edge (View → Show page gaps): paragraphs, lists and tables that fit on a page are moved whole to the next page. Blocks taller than a page still run across the edge, and print, PDF and Word export lay pages out on their own, so their breaks can differ slightly. Page numbers appear only in print/PDF/Word/HTML output.
 - Version history, like documents, lives only in this browser and is not included in backup files.
-- Not built: comments, footnotes, drawings, equations, folders, encryption and sync.
-- No real-time collaboration, sync, or encryption.
+- Equations and comments live in this browser; comments are not part of Word/PDF exports.
+- Not built: sync and real-time collaboration.
 - Browser storage quotas apply; large embedded images are downscaled to 1600 px.
 - Mobile fit-to-width uses a reflow view because a full page would be unreadable at phone width.
 - **Dependencies**: the project uses Tiptap 3.x (the 2.x line has advisory GHSA-cp6q-959q-f8rh). `npm audit` reports 4 *low* findings from `deepmerge` inside `workbox-build` (build tool of vite-plugin-pwa 2.0.0, already the latest release); no fixed version exists, and it never ships in the site. Recheck after vite-plugin-pwa updates.

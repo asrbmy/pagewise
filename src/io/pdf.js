@@ -81,6 +81,7 @@ export function collectWords(root) {
   const walker = (root.ownerDocument || document).createTreeWalker(root, 4 /* SHOW_TEXT */);
   const range = (root.ownerDocument || document).createRange();
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.parentElement && node.parentElement.closest('.katex')) continue; // typeset maths: the LaTeX source is not selectable text
     const text = node.nodeValue;
     const re = /\S+/g;
     for (let m = re.exec(text); m; m = re.exec(text)) {
@@ -112,9 +113,18 @@ export function toLatin1(text) {
   return text.replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"').replace(/[\u2013\u2014]/g, '-').replace(/\u2026/g, '...').replace(/[^\x20-\x7e\xa0-\xff]/g, '');
 }
 
+/** Typeset equations in `root` (the saved HTML only holds their LaTeX source). */
+async function renderEquations(root) {
+  const nodes = Array.from(root.querySelectorAll('span[data-type="math"]'));
+  if (!nodes.length) return;
+  const { renderMath } = await import('../editor/extensions/math.js');
+  await Promise.all(nodes.map((n) => renderMath(n, n.getAttribute('data-latex') || '', n.getAttribute('data-display') === 'true')));
+}
+
 async function renderBatches(host, nodes, html2canvas, widthPx) {
   const doc = host.querySelector('.doc');
   doc.replaceChildren(...nodes.map((n) => n.cloneNode(true)));
+  await renderEquations(doc);
   const top0 = doc.getBoundingClientRect().top;
   const rects = Array.from(doc.children).map((el) => {
     const r = el.getBoundingClientRect();
@@ -127,6 +137,8 @@ async function renderBatches(host, nodes, html2canvas, widthPx) {
   const canvases = [];
   for (const group of groups) {
     doc.replaceChildren(...group.map((i) => (blocks[i] || doc).cloneNode(true)));
+    // eslint-disable-next-line no-await-in-loop
+    await renderEquations(doc);
     const height = Math.max(1, Math.ceil(doc.getBoundingClientRect().height));
     const scale = Math.max(0.5, Math.min(SCALE, MAX_CANVAS_EDGE / height));
     const words = collectWords(doc);

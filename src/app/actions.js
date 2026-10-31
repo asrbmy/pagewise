@@ -12,13 +12,13 @@ export function goHome() {
   window.location.hash = '#/';
 }
 
-export async function createNewDocument() {
-  return store.createDocument({ pageSize: getPrefs().pageSize });
+export async function createNewDocument(folderId = null) {
+  return store.createDocument({ pageSize: getPrefs().pageSize, folderId });
 }
 
-export async function createFromTemplate(id) {
+export async function createFromTemplate(id, folderId = null) {
   const t = getTemplate(id);
-  return store.createDocument({ title: t.title, html: t.html, pageSize: getPrefs().pageSize });
+  return store.createDocument({ title: t.title, html: t.html, pageSize: getPrefs().pageSize, folderId });
 }
 
 /** Import a file as a brand-new document. Resolves to `{ doc, warnings }`. */

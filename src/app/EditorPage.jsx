@@ -1,3 +1,4 @@
+import { useT } from '../i18n/index.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { buildExtensions } from '../editor/extensions/index.js';
@@ -5,9 +6,13 @@ import { cleanPastedHtml } from '../editor/pasteClean.js';
 import { fileToImageDataUrl, isImageFile } from '../editor/images.js';
 import { PAGE_SIZES, PAGE_MARGIN, ZOOM_LEVELS } from '../editor/constants.js';
 import { normalizeLayout, pageMarginRules } from '../editor/layout.js';
+import { normalizeComments, newCommentId, resolvedCss } from '../editor/comments.js';
+import CommentsPanel from '../components/CommentsPanel.jsx';
 import TemplateDialog from '../components/TemplateDialog.jsx';
 import { store, AUTO_VERSION_INTERVAL } from '../storage/documents.js';
+import DrawingDialog from '../components/DrawingDialog.jsx';
 import VersionDialog from '../components/VersionDialog.jsx';
+import LockDialog, { UnlockScreen } from '../components/LockDialog.jsx';
 import { exportAndDownload, EXPORTERS } from '../io/export.js';
 import { downloadBackup } from '../io/backup.js';
 import { IMPORT_ACCEPT } from '../io/import.js';
@@ -19,7 +24,7 @@ import Icon from '../components/Icon.jsx';
 import Logo from '../components/Logo.jsx';
 import { ConfirmDialog } from '../components/Dialog.jsx';
 import { useToast } from '../components/Toasts.jsx';
-import { LinkDialog, ImageDialog, TableDialog, FindReplacePanel, PageSetupDialog, WordCountDialog, ShortcutsDialog } from '../components/EditorDialogs.jsx';
+import { LinkDialog, ImageDialog, TableDialog, FindReplacePanel, PageSetupDialog, WordCountDialog, ShortcutsDialog, EquationDialog, FootnoteDialog, CommentDialog, atSelection } from '../components/EditorDialogs.jsx';
 import { PrivacyDialog, AboutDialog } from '../components/InfoDialogs.jsx';
 import { createNewDocument, createFromTemplate, importIntoNewDocument, openDocument, goHome } from './actions.js';
 import { formatModified, formatFull } from './format.js';
@@ -42,6 +47,18 @@ export default function EditorPage({ docId }) {
     };
   }, [docId]);
 
+  if (state.status === 'ready' && state.doc.locked && !state.doc.unlocked) {
+    return (
+      <UnlockScreen
+        doc={state.doc}
+        onBack={goHome}
+        onUnlock={async (pw) => {
+          const doc = await store.unlockDocument(docId, pw);
+          setState({ status: 'ready', doc });
+        }}
+      />
+    );
+  }
   if (state.status === 'ready') return <EditorSurface key={docId} doc={state.doc} />;
 
   return (
@@ -76,8 +93,13 @@ function EditorSurface({ doc }) {
   const pwa = usePwaState();
 
   const [title, setTitle] = useState(doc.title);
+  const t = useT();
+  const [locked, setLocked] = useState(!!doc.locked);
   const [pageSize, setPageSizeState] = useState(doc.pageSize || 'letter');
   const [layout, setLayout] = useState(() => normalizeLayout(doc.layout));
+  const [comments, setCommentsState] = useState(() => normalizeComments(doc.comments));
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const commentsRef = useRef(comments);
   const [updatedAt, setUpdatedAt] = useState(doc.updatedAt);
   const [saveState, setSaveState] = useState('saved'); // saved | dirty | saving | error
   const [saveError, setSaveError] = useState('');
@@ -115,7 +137,7 @@ function EditorSurface({ doc }) {
     setSaveState('saving');
     const run = (async () => {
       try {
-        const saved = await store.saveDocument(doc.id, { html: editor.getHTML() });
+        const saved = await store.saveDocument(doc.id, { html: editor.getHTML(), comments: commentsRef.current });
         setUpdatedAt(saved.updatedAt);
         if (Date.now() - lastSnapshot.current >= AUTO_VERSION_INTERVAL) {
           lastSnapshot.current = Date.now();
@@ -149,6 +171,15 @@ function EditorSurface({ doc }) {
     clearTimeout(timer.current);
     timer.current = setTimeout(save, SAVE_DELAY);
   }, [save]);
+
+  const setComments = useCallback(
+    (next) => {
+      commentsRef.current = next;
+      setCommentsState(next);
+      markDirty();
+    },
+    [markDirty],
+  );
 
   const saveNow = useCallback(
     async (announce = true) => {
@@ -337,6 +368,12 @@ function EditorSurface({ doc }) {
     [save],
   );
 
+  const lockNow = () =>
+    leaveTo(() => {
+      store.forgetKey(doc.id);
+      goHome();
+    });
+
   const exportAs = async (format) => {
     if (!editor || busyExport) return;
     setBusyExport(true);
@@ -414,7 +451,11 @@ function EditorSurface({ doc }) {
     // Let ProseMirror absorb any selection change the browser has made but not yet reported.
     try { editor.view.domObserver.flush(); } catch { /* internal API; best effort */ }
     const { from, to } = editor.state.selection;
-    setDialog({ type, range: { from, to }, href: type === 'link' ? editor.getAttributes('link').href || '' : '' });
+    const node = editor.state.selection.node;
+    const math = type === 'equation' && node && node.type.name === 'math' ? node.attrs : null;
+    const footnote = type === 'footnote' && node && node.type.name === 'footnote' ? node.attrs.note : null;
+    const excerpt = type === 'comment' ? editor.state.doc.textBetween(from, to, ' ') : '';
+    setDialog({ type, range: { from, to }, href: type === 'link' ? editor.getAttributes('link').href || '' : '', math, footnote, excerpt });
   };
 
   const openFind = () => {
@@ -470,23 +511,29 @@ function EditorSurface({ doc }) {
     ? []
     : [
         {
-          label: 'File',
+          label: t('File'),
           items: [
-            { label: 'New document', onSelect: newDocument },
-            { label: 'New from template…', onSelect: () => setDialog({ type: 'templates' }) },
-            { label: 'All documents', onSelect: () => leaveTo(goHome) },
-            { label: 'Import file as new document…', onSelect: () => importRef.current?.click() },
+            { label: t('New document'), onSelect: newDocument },
+            { label: t('New from template…'), onSelect: () => setDialog({ type: 'templates' }) },
+            { label: t('All documents'), onSelect: () => leaveTo(goHome) },
+            { label: t('Import file as new document…'), onSelect: () => importRef.current?.click() },
             { separator: true },
-            { label: 'Make a copy', onSelect: makeCopy },
-            { label: 'Rename', onSelect: () => titleRef.current?.focus() },
-            { label: 'Version history…', onSelect: () => setDialog({ type: 'versions' }) },
-            { label: 'Save now', shortcut: `${MOD}S`, onSelect: () => saveNow(true) },
+            { label: t('Make a copy'), onSelect: makeCopy },
+            { label: t('Rename'), onSelect: () => titleRef.current?.focus() },
+            ...(locked ? [] : [{ label: t('Version history…'), onSelect: () => setDialog({ type: 'versions' }) }]),
+            ...(locked
+              ? [
+                  { label: t('Lock now'), onSelect: lockNow },
+                  { label: t('Remove password…'), onSelect: () => setDialog({ type: 'unlock' }) },
+                ]
+              : [{ label: t('Lock with password…'), onSelect: () => setDialog({ type: 'lock' }) }]),
+            { label: t('Save now'), shortcut: `${MOD}S`, onSelect: () => saveNow(true) },
             { separator: true },
-            { heading: 'Download as' },
+            { heading: t('Download as') },
             ...Object.entries(EXPORTERS).map(([id, ex]) => ({ label: ex.label, onSelect: () => exportAs(id), disabled: busyExport })),
             { separator: true },
-            { label: 'Print / Save as PDF (selectable text)', shortcut: `${MOD}P`, onSelect: () => window.print() },
-            { label: 'Back up all documents…', onSelect: async () => {
+            { label: t('Print / Save as PDF (selectable text)'), shortcut: `${MOD}P`, onSelect: () => window.print() },
+            { label: t('Back up all documents…'), onSelect: async () => {
               try {
                 const n = await downloadBackup(store);
                 toast(`Backed up ${n} document${n === 1 ? '' : 's'}.`, { kind: 'success' });
@@ -495,70 +542,77 @@ function EditorSurface({ doc }) {
               }
             } },
             { separator: true },
-            { label: 'Page setup…', onSelect: () => setDialog({ type: 'page' }) },
-            { label: 'Delete document…', onSelect: () => setDialog({ type: 'delete' }) },
+            { label: t('Page setup…'), onSelect: () => setDialog({ type: 'page' }) },
+            { label: t('Delete document…'), onSelect: () => setDialog({ type: 'delete' }) },
           ],
         },
         {
-          label: 'Edit',
+          label: t('Edit'),
           items: [
-            { label: 'Undo', shortcut: `${MOD}Z`, onSelect: run('undo'), disabled: !editor.can().undo() },
-            { label: 'Redo', shortcut: `${MOD}Shift+Z`, onSelect: run('redo'), disabled: !editor.can().redo() },
+            { label: t('Undo'), shortcut: `${MOD}Z`, onSelect: run('undo'), disabled: !editor.can().undo() },
+            { label: t('Redo'), shortcut: `${MOD}Shift+Z`, onSelect: run('redo'), disabled: !editor.can().redo() },
             { separator: true },
-            { label: 'Cut', shortcut: `${MOD}X`, onSelect: () => { editor.commands.focus(); document.execCommand('cut'); } },
-            { label: 'Copy', shortcut: `${MOD}C`, onSelect: () => { editor.commands.focus(); document.execCommand('copy'); } },
-            { label: 'Select all', shortcut: `${MOD}A`, onSelect: run('selectAll') },
+            { label: t('Cut'), shortcut: `${MOD}X`, onSelect: () => { editor.commands.focus(); document.execCommand('cut'); } },
+            { label: t('Copy'), shortcut: `${MOD}C`, onSelect: () => { editor.commands.focus(); document.execCommand('copy'); } },
+            { label: t('Select all'), shortcut: `${MOD}A`, onSelect: run('selectAll') },
             { separator: true },
-            { label: 'Find and replace…', shortcut: `${MOD}F`, onSelect: openFind },
-            { label: 'Clear formatting', shortcut: `${MOD}\\`, onSelect: () => chain().unsetAllMarks().unsetTextAlign().run() },
+            { label: t('Find and replace…'), shortcut: `${MOD}F`, onSelect: openFind },
+            { label: t('Clear formatting'), shortcut: `${MOD}\\`, onSelect: () => chain().unsetAllMarks().unsetTextAlign().run() },
           ],
         },
         {
-          label: 'View',
+          label: t('View'),
           items: [
-            { label: 'Zoom in', onSelect: () => zoomStep(1) },
-            { label: 'Zoom out', onSelect: () => zoomStep(-1) },
-            { label: 'Zoom to 100%', onSelect: () => setZoomClamped(1) },
-            { label: 'Fit to width', checked: zoom === 'fit', onSelect: () => setZoomClamped('fit') },
+            { label: t('Zoom in'), onSelect: () => zoomStep(1) },
+            { label: t('Zoom out'), onSelect: () => zoomStep(-1) },
+            { label: t('Zoom to 100%'), onSelect: () => setZoomClamped(1) },
+            { label: t('Fit to width'), checked: zoom === 'fit', onSelect: () => setZoomClamped('fit') },
             { separator: true },
-            { heading: 'Theme' },
-            { label: 'Light', checked: prefs.theme === 'light', onSelect: () => setPrefs({ theme: 'light' }) },
-            { label: 'Dark', checked: prefs.theme === 'dark', onSelect: () => setPrefs({ theme: 'dark' }) },
-            { label: 'Match system', checked: prefs.theme === 'system', onSelect: () => setPrefs({ theme: 'system' }) },
+            { heading: t('Theme') },
+            { label: t('Light'), checked: prefs.theme === 'light', onSelect: () => setPrefs({ theme: 'light' }) },
+            { label: t('Dark'), checked: prefs.theme === 'dark', onSelect: () => setPrefs({ theme: 'dark' }) },
+            { label: t('Match system'), checked: prefs.theme === 'system', onSelect: () => setPrefs({ theme: 'system' }) },
             { separator: true },
-            { label: 'Show page gaps (text never crosses a page edge)', checked: prefs.pagination, onSelect: () => setPrefs({ pagination: !prefs.pagination }) },
-            { label: 'Show status bar', checked: prefs.showStatusBar, onSelect: () => setPrefs({ showStatusBar: !prefs.showStatusBar }) },
-            { label: 'Full screen', onSelect: () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.()) },
+            { label: t('Show page gaps (text never crosses a page edge)'), checked: prefs.pagination, onSelect: () => setPrefs({ pagination: !prefs.pagination }) },
+            { label: t('Comments panel'), checked: commentsOpen, onSelect: () => setCommentsOpen(!commentsOpen) },
+            { label: t('Show status bar'), checked: prefs.showStatusBar, onSelect: () => setPrefs({ showStatusBar: !prefs.showStatusBar }) },
+            { label: t('Full screen'), onSelect: () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.()) },
           ],
         },
         {
-          label: 'Insert',
+          label: t('Insert'),
           items: [
-            { label: 'Link…', shortcut: `${MOD}K`, onSelect: () => openInsertDialog('link') },
-            { label: 'Image…', onSelect: () => openInsertDialog('image') },
-            { label: 'Table…', onSelect: () => openInsertDialog('table') },
+            { label: t('Link…'), shortcut: `${MOD}K`, onSelect: () => openInsertDialog('link') },
+            { label: t('Image…'), onSelect: () => openInsertDialog('image') },
+            { label: t('Table…'), onSelect: () => openInsertDialog('table') },
+            { label: t('Equation…'), onSelect: () => openInsertDialog('equation') },
+            { label: t('Edit selected equation…'), disabled: !(editor.state.selection.node && editor.state.selection.node.type.name === 'math'), onSelect: () => openInsertDialog('equation') },
+            { label: t('Drawing…'), onSelect: () => openInsertDialog('drawing') },
+            { label: t('Footnote…'), onSelect: () => openInsertDialog('footnote') },
+            { label: t('Edit selected footnote…'), disabled: !(editor.state.selection.node && editor.state.selection.node.type.name === 'footnote'), onSelect: () => openInsertDialog('footnote') },
+            { label: t('Comment…'), disabled: editor.state.selection.empty, onSelect: () => openInsertDialog('comment') },
             { separator: true },
-            { label: 'Horizontal line', onSelect: run('setHorizontalRule') },
-            { label: 'Page break', shortcut: `${MOD}Enter`, onSelect: run('setPageBreak') },
-            { label: 'Table of contents', onSelect: run('insertTableOfContents') },
-            { label: 'Update table of contents', onSelect: run('updateTableOfContents') },
-            { label: 'Block quote', checked: editor.isActive('blockquote'), onSelect: run('toggleBlockquote') },
+            { label: t('Horizontal line'), onSelect: run('setHorizontalRule') },
+            { label: t('Page break'), shortcut: `${MOD}Enter`, onSelect: run('setPageBreak') },
+            { label: t('Table of contents'), onSelect: run('insertTableOfContents') },
+            { label: t('Update table of contents'), onSelect: run('updateTableOfContents') },
+            { label: t('Block quote'), checked: editor.isActive('blockquote'), onSelect: run('toggleBlockquote') },
           ],
         },
         {
-          label: 'Format',
+          label: t('Format'),
           items: [
-            { heading: 'Text' },
-            { label: 'Bold', shortcut: `${MOD}B`, checked: editor.isActive('bold'), onSelect: run('toggleBold') },
-            { label: 'Italic', shortcut: `${MOD}I`, checked: editor.isActive('italic'), onSelect: run('toggleItalic') },
-            { label: 'Underline', shortcut: `${MOD}U`, checked: editor.isActive('underline'), onSelect: run('toggleUnderline') },
-            { label: 'Strikethrough', shortcut: `${MOD}Shift+X`, checked: editor.isActive('strike'), onSelect: run('toggleStrike') },
-            { label: 'Superscript', checked: editor.isActive('superscript'), onSelect: run('toggleSuperscript') },
-            { label: 'Subscript', checked: editor.isActive('subscript'), onSelect: run('toggleSubscript') },
-            { label: 'Code', checked: editor.isActive('code'), onSelect: run('toggleCode') },
+            { heading: t('Text') },
+            { label: t('Bold'), shortcut: `${MOD}B`, checked: editor.isActive('bold'), onSelect: run('toggleBold') },
+            { label: t('Italic'), shortcut: `${MOD}I`, checked: editor.isActive('italic'), onSelect: run('toggleItalic') },
+            { label: t('Underline'), shortcut: `${MOD}U`, checked: editor.isActive('underline'), onSelect: run('toggleUnderline') },
+            { label: t('Strikethrough'), shortcut: `${MOD}Shift+X`, checked: editor.isActive('strike'), onSelect: run('toggleStrike') },
+            { label: t('Superscript'), checked: editor.isActive('superscript'), onSelect: run('toggleSuperscript') },
+            { label: t('Subscript'), checked: editor.isActive('subscript'), onSelect: run('toggleSubscript') },
+            { label: t('Code'), checked: editor.isActive('code'), onSelect: run('toggleCode') },
             { separator: true },
-            { heading: 'Paragraph style' },
-            { label: 'Normal text', shortcut: `${MOD}Alt+0`, checked: !editor.isActive('heading'), onSelect: run('setParagraph') },
+            { heading: t('Paragraph style') },
+            { label: t('Normal text'), shortcut: `${MOD}Alt+0`, checked: !editor.isActive('heading'), onSelect: run('setParagraph') },
             ...[1, 2, 3, 4, 5, 6].map((l) => ({
               label: `Heading ${l}`,
               shortcut: `${MOD}Alt+${l}`,
@@ -566,56 +620,56 @@ function EditorSurface({ doc }) {
               onSelect: () => chain().setHeading({ level: l }).run(),
             })),
             { separator: true },
-            { heading: 'Align' },
+            { heading: t('Align') },
             ...['left', 'center', 'right', 'justify'].map((a) => ({
               label: `Align ${a}`,
               checked: editor.isActive({ textAlign: a }),
               onSelect: () => chain().setTextAlign(a).run(),
             })),
             { separator: true },
-            { heading: 'Line spacing' },
+            { heading: t('Line spacing') },
             ...[['Single', '1'], ['1.15', '1.15'], ['1.5', '1.5'], ['Double', '2']].map(([label, v]) => ({
               label: `Line spacing: ${label}`,
               checked: paraAttrs.lineHeight === v,
               onSelect: () => chain().setLineHeight(v).run(),
             })),
-            { label: 'Add space before paragraph', onSelect: () => chain().setParagraphSpacing({ before: 12 }).run() },
-            { label: 'Add space after paragraph', onSelect: () => chain().setParagraphSpacing({ after: 12 }).run() },
-            { label: 'Remove paragraph spacing', onSelect: () => chain().setParagraphSpacing({ before: 0, after: 0 }).run() },
+            { label: t('Add space before paragraph'), onSelect: () => chain().setParagraphSpacing({ before: 12 }).run() },
+            { label: t('Add space after paragraph'), onSelect: () => chain().setParagraphSpacing({ after: 12 }).run() },
+            { label: t('Remove paragraph spacing'), onSelect: () => chain().setParagraphSpacing({ before: 0, after: 0 }).run() },
             { separator: true },
-            { heading: 'Lists and indentation' },
-            { label: 'Bulleted list', shortcut: `${MOD}Shift+8`, checked: editor.isActive('bulletList'), onSelect: run('toggleBulletList') },
-            { label: 'Numbered list', shortcut: `${MOD}Shift+7`, checked: editor.isActive('orderedList'), onSelect: run('toggleOrderedList') },
-            { label: 'Increase indent', shortcut: `${MOD}]`, onSelect: run('indent') },
-            { label: 'Decrease indent', shortcut: `${MOD}[`, onSelect: run('outdent') },
+            { heading: t('Lists and indentation') },
+            { label: t('Bulleted list'), shortcut: `${MOD}Shift+8`, checked: editor.isActive('bulletList'), onSelect: run('toggleBulletList') },
+            { label: t('Numbered list'), shortcut: `${MOD}Shift+7`, checked: editor.isActive('orderedList'), onSelect: run('toggleOrderedList') },
+            { label: t('Increase indent'), shortcut: `${MOD}]`, onSelect: run('indent') },
+            { label: t('Decrease indent'), shortcut: `${MOD}[`, onSelect: run('outdent') },
             ...(isImageSelected
               ? [
                   { separator: true },
-                  { heading: 'Selected image' },
+                  { heading: t('Selected image') },
                   ...['25%', '50%', '75%', '100%'].map((w) => ({ label: `Image width ${w}`, checked: imageWidth === w, onSelect: () => chain().updateAttributes('image', { width: w }).run() })),
-                  { label: 'Image: original size', checked: !imageWidth, onSelect: () => chain().updateAttributes('image', { width: null }).run() },
+                  { label: t('Image: original size'), checked: !imageWidth, onSelect: () => chain().updateAttributes('image', { width: null }).run() },
                 ]
               : []),
           ],
         },
         {
-          label: 'Tools',
+          label: t('Tools'),
           items: [
-            { label: 'Word count…', onSelect: () => setDialog({ type: 'count' }) },
-            { label: 'Find and replace…', shortcut: `${MOD}F`, onSelect: openFind },
+            { label: t('Word count…'), onSelect: () => setDialog({ type: 'count' }) },
+            { label: t('Find and replace…'), shortcut: `${MOD}F`, onSelect: openFind },
             { separator: true },
-            { label: 'Browser spell check', checked: prefs.spellcheck, onSelect: () => setPrefs({ spellcheck: !prefs.spellcheck }) },
-            { label: 'Page setup…', onSelect: () => setDialog({ type: 'page' }) },
+            { label: t('Browser spell check'), checked: prefs.spellcheck, onSelect: () => setPrefs({ spellcheck: !prefs.spellcheck }) },
+            { label: t('Page setup…'), onSelect: () => setDialog({ type: 'page' }) },
           ],
         },
         {
-          label: 'Help',
+          label: t('Help'),
           items: [
-            { label: 'Keyboard shortcuts', onSelect: () => setDialog({ type: 'shortcuts' }) },
-            { label: 'Privacy and storage', onSelect: () => setDialog({ type: 'privacy' }) },
-            { label: 'Install Pagewise as an app', onSelect: promptInstall, disabled: !pwa.canInstall },
+            { label: t('Keyboard shortcuts'), onSelect: () => setDialog({ type: 'shortcuts' }) },
+            { label: t('Privacy and storage'), onSelect: () => setDialog({ type: 'privacy' }) },
+            { label: t('Install Pagewise as an app'), onSelect: promptInstall, disabled: !pwa.canInstall },
             { separator: true },
-            { label: 'About Pagewise', onSelect: () => setDialog({ type: 'about' }) },
+            { label: t('About Pagewise'), onSelect: () => setDialog({ type: 'about' }) },
           ],
         },
       ];
@@ -741,6 +795,9 @@ function EditorSurface({ doc }) {
         </div>
       </main>
 
+      {commentsOpen && editor && <CommentsPanel editor={editor} comments={comments} onChange={setComments} onClose={() => setCommentsOpen(false)} />}
+      <style>{resolvedCss(comments)}</style>
+
       {prefs.showStatusBar && (
         <footer className="statusbar" aria-label="Document status">
           <span>
@@ -768,8 +825,57 @@ function EditorSurface({ doc }) {
       {dialog?.type === 'link' && editor && <LinkDialog editor={editor} range={dialog.range} href={dialog.href} onClose={closeDialog} />}
       {dialog?.type === 'image' && editor && <ImageDialog editor={editor} range={dialog.range} onClose={closeDialog} notify={toast} />}
       {dialog?.type === 'table' && editor && <TableDialog editor={editor} range={dialog.range} onClose={closeDialog} />}
+      {dialog?.type === 'equation' && editor && <EquationDialog editor={editor} range={dialog.range} initial={dialog.math} editing={!!dialog.math} onClose={closeDialog} />}
+      {dialog?.type === 'footnote' && editor && <FootnoteDialog editor={editor} range={dialog.range} initial={dialog.footnote} editing={dialog.footnote !== null} onClose={closeDialog} />}
+      {dialog?.type === 'comment' && editor && (
+        <CommentDialog
+          excerpt={dialog.excerpt}
+          onClose={closeDialog}
+          onSubmit={(text) => {
+            const id = newCommentId();
+            editor.chain().focus().setTextSelection(dialog.range).addCommentMark(id).run();
+            setComments([...commentsRef.current, { id, text: text.trim(), createdAt: Date.now(), resolved: false }]);
+            setCommentsOpen(true);
+            closeDialog();
+          }}
+        />
+      )}
+      {dialog?.type === 'drawing' && editor && (
+        <DrawingDialog
+          onClose={closeDialog}
+          onInsert={(src, alt) => {
+            atSelection(editor, dialog.range).setImage({ src, alt }).run();
+            closeDialog();
+          }}
+        />
+      )}
       {dialog?.type === 'count' && editor && <WordCountDialog editor={editor} pages={pages} onClose={closeDialog} />}
       {dialog?.type === 'templates' && <TemplateDialog onPick={(id) => { closeDialog(); newFromTemplate(id); }} onClose={closeDialog} />}
+      {dialog?.type === 'lock' && (
+        <LockDialog
+          onCancel={closeDialog}
+          onSubmit={async (pw) => {
+            if (!(await save())) throw new Error('Could not save the document before locking it.');
+            await store.lockDocument(doc.id, pw);
+            setLocked(true);
+            closeDialog();
+            toast('Document locked. It stays open until you close it or use File → Lock now.', { kind: 'success' });
+          }}
+        />
+      )}
+      {dialog?.type === 'unlock' && (
+        <LockDialog
+          mode="remove"
+          onCancel={closeDialog}
+          onSubmit={async (pw) => {
+            await store.unlockDocument(doc.id, pw); // verifies the password
+            await store.removeLock(doc.id);
+            setLocked(false);
+            closeDialog();
+            toast('Password removed.', { kind: 'success' });
+          }}
+        />
+      )}
       {dialog?.type === 'versions' && editor && (
         <VersionDialog
           store={store}

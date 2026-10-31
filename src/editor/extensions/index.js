@@ -20,6 +20,9 @@ import { PageBreak } from './pageBreak.js';
 import { FindReplace } from './findReplace.js';
 import { TableOfContents } from './tableOfContents.js';
 import { Pagination } from './pagination.js';
+import { MathNode } from './math.js';
+import { Footnote } from './footnote.js';
+import { Comment } from './comment.js';
 
 /** Image with an optional width (percentage of the text column) so images can be resized. */
 const ResizableImage = Image.extend({
@@ -72,6 +75,9 @@ export function buildExtensions({ placeholder = 'Start typing…' } = {}) {
     ParagraphFormat,
     PageBreak,
     TableOfContents,
+    MathNode,
+    Footnote,
+    Comment,
     FindReplace,
     Pagination,
     Placeholder.configure({ placeholder }),

@@ -5,6 +5,7 @@
  */
 import { htmlToPlainText } from '../storage/text.js';
 import { sanitizeHtml } from './sanitize.js';
+import { prepareForExport } from './prepare.js';
 import { normalizeLayout, pageMarginRules } from '../editor/layout.js';
 import { documentCss } from './docStyles.js';
 
@@ -106,6 +107,10 @@ export async function htmlToMarkdown(html) {
   });
   td.use(gfm);
   td.keep(['u', 'mark', 'sub', 'sup']);
+  td.addRule('math', {
+    filter: (n) => n.nodeName === 'SPAN' && n.getAttribute('data-type') === 'math',
+    replacement: (_c, n) => (n.getAttribute('data-display') === 'true' ? `$$${n.getAttribute('data-latex') || ''}$$` : `$${n.getAttribute('data-latex') || ''}$`),
+  });
   td.addRule('strikethrough', {
     filter: ['del', 's', 'strike'],
     replacement: (content) => `~~${content}~~`,
@@ -176,10 +181,24 @@ export async function exportPdf({ title, html, pageSize, layout }) {
   return { blob, filename: safeFilename(title, 'pdf'), warnings };
 }
 
+export async function exportRtf({ title, html, pageSize, layout }) {
+  const { buildRtf } = await import('./rtf.js');
+  const { rtf, warnings } = buildRtf(html, { title, pageSize, layout });
+  return { blob: new Blob([rtf], { type: 'application/rtf' }), filename: safeFilename(title, 'rtf'), warnings };
+}
+
+export async function exportOdt({ title, html, pageSize, layout }) {
+  const { buildOdt } = await import('./odt.js');
+  const { blob, warnings } = await buildOdt(html, { title, pageSize, layout });
+  return { blob, filename: safeFilename(title, 'odt'), warnings };
+}
+
 export const EXPORTERS = {
   docx: { label: 'Microsoft Word (.docx)', run: exportDocx },
   pdf: { label: 'PDF document (.pdf)', run: exportPdf },
   html: { label: 'Web page (.html)', run: exportHtml },
+  odt: { label: 'OpenDocument Text (.odt)', run: exportOdt },
+  rtf: { label: 'Rich Text Format (.rtf)', run: exportRtf },
   md: { label: 'Markdown (.md)', run: exportMarkdown },
   txt: { label: 'Plain text (.txt)', run: exportTxt },
 };
@@ -188,7 +207,7 @@ export const EXPORTERS = {
 export async function exportAndDownload(format, doc) {
   const exporter = EXPORTERS[format];
   if (!exporter) throw new Error(`Unknown export format: ${format}`);
-  const result = await exporter.run(doc);
+  const result = await exporter.run({ ...doc, html: prepareForExport(doc.html) });
   downloadBlob(result.blob, result.filename);
   return result;
 }

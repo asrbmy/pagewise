@@ -234,3 +234,93 @@ describe('pagination planning', () => {
     expect(planSpacers([{ top: 100, height: 200, spacer: 0, isBreak: true }, { top: 310, height: 40, spacer: 0 }], geo)).toEqual([0, 790]);
   });
 });
+
+describe('equations', () => {
+  it('stores LaTeX in the document, round-trips, and reads as source in text exports', async () => {
+    make('<p>Energy: </p>');
+    editor.commands.focus('end');
+    expect(editor.commands.insertMath({ latex: 'E = mc^2', display: false })).toBe(true);
+    const html = editor.getHTML();
+    expect(html).toContain('data-type="math"');
+    expect(html).toContain('data-latex="E = mc^2"');
+    expect(html).toContain('>$E = mc^2$<');
+    const again = new Editor({ extensions: buildExtensions(), content: html });
+    expect(again.getHTML()).toBe(html);
+    again.destroy();
+    const { htmlToMarkdown } = await import('../src/io/export.js');
+    expect(await htmlToMarkdown('<p><span data-type="math" data-latex="x_i^2 * y" data-display="false">$x_i^2 * y$</span></p>')).toContain('$x_i^2 * y$');
+  });
+
+  it('updates a selected equation, and refuses empty LaTeX', () => {
+    make('<p>a <span data-type="math" data-latex="x" data-display="false">$x$</span> b</p>');
+    expect(editor.commands.insertMath({ latex: '   ' })).toBe(false);
+    editor.commands.setNodeSelection(3);
+    expect(editor.commands.updateMath({ latex: 'y^2', display: true })).toBe(true);
+    expect(editor.getHTML()).toContain('data-latex="y^2"');
+    expect(editor.getHTML()).toContain('data-display="true"');
+    editor.commands.setTextSelection(1);
+    expect(editor.commands.updateMath({ latex: 'z' })).toBe(false);
+  });
+
+  it('keeps equations through the sanitizer and caps their length', async () => {
+    const { sanitizeHtml } = await import('../src/io/sanitize.js');
+    const out = sanitizeHtml('<p><span data-type="math" data-latex="\\frac{a}{b}" data-display="false">$x$</span></p>');
+    expect(out).toContain('data-latex');
+    make(`<p><span data-type="math" data-latex="${'x'.repeat(5000)}">$x$</span></p>`);
+    expect(editor.getHTML().match(/data-latex="(x*)"/)[1].length).toBe(2000);
+  });
+});
+
+describe('footnotes', () => {
+  it('number in document order and round-trip', async () => {
+    const { collectFootnotes } = await import('../src/editor/extensions/footnote.js');
+    make('<p>One</p><p>Two</p>');
+    editor.commands.focus('end');
+    editor.commands.insertFootnote('second note');
+    editor.commands.setTextSelection(4);
+    editor.commands.insertFootnote('first note');
+    const notes = collectFootnotes(editor.state.doc);
+    expect(notes.map((n) => [n.number, n.note])).toEqual([[1, 'first note'], [2, 'second note']]);
+    const html = editor.getHTML();
+    expect(html).toContain('data-type="footnote"');
+    const again = new Editor({ extensions: buildExtensions(), content: html });
+    expect(again.getHTML()).toBe(html);
+    again.destroy();
+    expect(editor.commands.insertFootnote('   ')).toBe(false);
+  });
+
+  it('edits the selected footnote only', () => {
+    make('<p>a <span data-type="footnote" data-note="old"></span> b</p>');
+    editor.commands.setNodeSelection(3);
+    expect(editor.commands.updateFootnote('new text')).toBe(true);
+    expect(editor.getHTML()).toContain('data-note="new text"');
+    editor.commands.setTextSelection(1);
+    expect(editor.commands.updateFootnote('x')).toBe(false);
+  });
+});
+
+describe('comments', () => {
+  it('anchors to selected text, allows overlap, and can be removed', async () => {
+    const { collectComments } = await import('../src/editor/extensions/comment.js');
+    make('<p>Hello brave new world</p>');
+    editor.commands.setTextSelection({ from: 1, to: 12 });
+    expect(editor.commands.addCommentMark('c1')).toBe(true);
+    editor.commands.setTextSelection({ from: 7, to: 16 });
+    editor.commands.addCommentMark('c2');
+    const found = collectComments(editor.state.doc);
+    expect(found.get('c1')).toBe('Hello brave');
+    expect(found.get('c2')).toBe('brave new');
+    expect(editor.getHTML()).toContain('data-comment-id="c1"');
+    expect(editor.commands.removeCommentMark('c1')).toBe(true);
+    expect(editor.getHTML()).not.toContain('c1');
+    expect(editor.getHTML()).toContain('data-comment-id="c2"');
+    editor.commands.setTextSelection(2);
+    expect(editor.commands.addCommentMark('c3')).toBe(false); // needs a selection
+    expect(editor.commands.addCommentMark('bad id!')).toBe(false);
+  });
+
+  it('ignores marks with unsafe ids when loading', () => {
+    make('<p><span data-comment-id="x&quot; onmouseover=&quot;1">text</span></p>');
+    expect(editor.getHTML()).not.toContain('onmouseover');
+  });
+});

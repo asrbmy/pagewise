@@ -202,3 +202,72 @@ describe('version history', () => {
     expect(await s.listVersions(a.id)).toHaveLength(0);
   });
 });
+
+describe('folders', () => {
+  let s;
+  beforeEach(async () => {
+    s = new DocumentStore({ dbName: 'f-' + Math.random() });
+    await s.init();
+  });
+
+  it('creates, renames and rejects empty or duplicate folder names', async () => {
+    const a = await s.createFolder('  Work ');
+    expect(a.name).toBe('Work');
+    await expect(s.createFolder('work')).rejects.toThrow(/already exists/);
+    await expect(s.createFolder('   ')).rejects.toThrow(/name/);
+    const r = await s.renameFolder(a.id, 'Office');
+    expect(r.name).toBe('Office');
+    await s.createFolder('Home');
+    await expect(s.renameFolder(a.id, 'home')).rejects.toThrow(/already exists/);
+    expect((await s.listFolders()).map((f) => f.name)).toEqual(['Home', 'Office']);
+  });
+
+  it('files documents, filters by folder, and keeps the modified date when moving', async () => {
+    const f = await s.createFolder('Work');
+    const d1 = await s.createDocument({ title: 'in work' });
+    const d2 = await s.createDocument({ title: 'loose' });
+    const before = (await s.getDocument(d1.id)).updatedAt;
+    await new Promise((r) => setTimeout(r, 5));
+    await s.setFolder(d1.id, f.id);
+    expect((await s.getDocument(d1.id)).updatedAt).toBe(before);
+    expect((await s.listDocuments({ folder: f.id })).map((d) => d.title)).toEqual(['in work']);
+    expect((await s.listDocuments({ folder: 'none' })).map((d) => d.title)).toEqual(['loose']);
+    expect(await s.listDocuments({ folder: 'all' })).toHaveLength(2);
+    await expect(s.setFolder(d2.id, 'nope')).rejects.toThrow(/no longer exists/);
+  });
+
+  it('deleting a folder keeps its documents, which become unfiled', async () => {
+    const f = await s.createFolder('Temp');
+    const d = await s.createDocument({ title: 'keep me', folderId: f.id });
+    await s.deleteFolder(f.id);
+    expect(await s.listFolders()).toHaveLength(0);
+    const got = await s.getDocument(d.id);
+    expect(got.title).toBe('keep me');
+    expect(got.folderId).toBeNull();
+  });
+
+  it('backs up and restores folders without duplicating existing ones', async () => {
+    const { buildBackup, parseBackupFull } = await import('../src/io/backup.js');
+    const f = await s.createFolder('Work');
+    await s.createDocument({ title: 'a', folderId: f.id });
+    const backup = buildBackup(await s.exportAll(), await s.listFolders());
+    const parsed = parseBackupFull(JSON.stringify(backup));
+    expect(parsed.folders).toEqual([{ id: f.id, name: 'Work' }]);
+    expect(parsed.docs[0].folderId).toBe(f.id);
+
+    const fresh = new DocumentStore({ dbName: 'f2-' + Math.random() });
+    await fresh.init();
+    await fresh.importAll(parsed.docs, parsed.folders);
+    const folders = await fresh.listFolders();
+    expect(folders.map((x) => x.name)).toEqual(['Work']);
+    expect((await fresh.listDocuments({ folder: folders[0].id })).map((d) => d.title)).toEqual(['a']);
+    await fresh.importAll(parsed.docs, parsed.folders); // again: no second "Work"
+    expect(await fresh.listFolders()).toHaveLength(1);
+  });
+
+  it('drops folder ids that the backup does not define', async () => {
+    const { parseBackupFull } = await import('../src/io/backup.js');
+    const text = JSON.stringify({ format: 'pagewise-backup', version: 1, folders: [], documents: [{ html: '<p>x</p>', folderId: 'ghost' }] });
+    expect(parseBackupFull(text).docs[0].folderId).toBeNull();
+  });
+});

@@ -8,9 +8,11 @@ const KEY = 'pagewise:prefs';
 
 export const DEFAULT_PREFS = {
   theme: 'system', // 'system' | 'light' | 'dark'
+  language: 'auto', // 'auto' follows the browser; otherwise a code from src/i18n
   spellcheck: true,
   pageSize: 'letter', // default for new documents: 'letter' | 'a4'
   sort: 'modified-desc',
+  folder: 'all', // home page filter: 'all' | 'none' | folder id
   showStatusBar: true,
   pagination: true, // keep text from running across page gaps in the editor
   dismissedStorageNotice: false,

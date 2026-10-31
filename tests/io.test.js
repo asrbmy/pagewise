@@ -342,3 +342,49 @@ describe('PDF Unicode text layer', () => {
     expect(toUnicodeText('a\u0000b\u0085c')).toBe('abc');
   });
 });
+
+describe('export preparation', () => {
+  it('turns footnotes into numbered superscripts with a notes list, and drops comments', async () => {
+    const { prepareForExport, stripComments } = await import('../src/io/prepare.js');
+    const html = '<p>A<span data-type="footnote" data-note="first"></span> <span data-comment-id="c1">remarked</span> B<span data-type="footnote" data-note="second <b>"></span></p>';
+    const out = prepareForExport(html);
+    expect(out).toContain('<sup>1</sup>');
+    expect(out).toContain('<sup>2</sup>');
+    expect(out).toMatch(/<strong>Notes<\/strong>/);
+    expect(out).toMatch(/<li><p>first<\/p><\/li><li><p>second &lt;b&gt;<\/p><\/li>/);
+    expect(out).not.toContain('comment');
+    expect(out).toContain('remarked');
+    expect(prepareForExport('<p>plain</p>')).toBe('<p>plain</p>');
+    expect(stripComments('<p><span data-comment-id="c1">x</span></p>')).toBe('<p>x</p>');
+  });
+
+  it('exports notes in Word, ODT and RTF', async () => {
+    const { prepareForExport } = await import('../src/io/prepare.js');
+    const { buildRtf } = await import('../src/io/rtf.js');
+    const html = prepareForExport('<p>Claim<span data-type="footnote" data-note="Source: a book"></span></p>');
+    expect(buildRtf(html).rtf).toContain('Source: a book');
+    const { buffer } = await htmlToDocxBuffer(html);
+    const zip = await JSZip.loadAsync(buffer);
+    expect(await zip.file('word/document.xml').async('string')).toContain('Source: a book');
+  });
+});
+
+describe('comment records', () => {
+  it('validate untrusted data', async () => {
+    const { normalizeComments, resolvedCss } = await import('../src/editor/comments.js');
+    const out = normalizeComments([
+      { id: 'c1', text: ' hi ', createdAt: 5, resolved: true },
+      { id: 'c1', text: 'dup' },
+      { id: 'bad id', text: 'x' },
+      { id: 'c2', text: '' },
+      null,
+      { id: 'c3', text: 'x'.repeat(5000) },
+    ]);
+    expect(out.map((c) => c.id)).toEqual(['c1', 'c3']);
+    expect(out[0]).toMatchObject({ text: 'hi', resolved: true });
+    expect(out[1].text.length).toBe(2000);
+    expect(normalizeComments('nope')).toEqual([]);
+    expect(resolvedCss(out)).toContain('data-comment-id="c1"');
+    expect(resolvedCss(out)).not.toContain('c3');
+  });
+});

@@ -13,7 +13,7 @@ const CONFIG = {
   USE_PROFILES: { html: true },
   FORBID_TAGS: ['style', 'script', 'iframe', 'frame', 'frameset', 'object', 'embed', 'applet', 'form', 'input', 'button', 'select', 'textarea', 'link', 'meta', 'base', 'svg', 'math', 'audio', 'video', 'source', 'track', 'picture', 'template'],
   FORBID_ATTR: ['srcset', 'ping', 'formaction', 'action', 'background', 'poster', 'xlink:href', 'srcdoc'],
-  ADD_ATTR: ['target', 'data-type', 'data-indent', 'data-space-before', 'data-space-after', 'data-width', 'colspan', 'rowspan'],
+  ADD_ATTR: ['target', 'data-type', 'data-indent', 'data-space-before', 'data-space-after', 'data-width', 'data-latex', 'data-display', 'data-note', 'data-comment-id', 'colspan', 'rowspan'],
   ALLOW_DATA_ATTR: false,
 };
 

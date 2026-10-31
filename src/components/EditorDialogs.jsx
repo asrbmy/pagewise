@@ -8,6 +8,10 @@ import { PAGE_SIZES } from '../editor/constants.js';
 import { MOD } from './Toolbar.jsx';
 
 /** Re-apply the selection captured when the dialog opened, then continue the chain. */
+export function atSelection(editor, range) {
+  return atRange(editor, range);
+}
+
 function atRange(editor, range) {
   const chain = editor.chain().focus();
   if (range) {
@@ -487,6 +491,133 @@ export function ShortcutsDialog({ onClose }) {
           Close
         </button>
       </div>
+    </Dialog>
+  );
+}
+
+// ------------------------------------------------------------------ Equation
+
+const SNIPPETS = [
+  ['Fraction', '\\frac{a}{b}'],
+  ['Square root', '\\sqrt{x}'],
+  ['Power', 'x^{2}'],
+  ['Subscript', 'x_{i}'],
+  ['Sum', '\\sum_{i=1}^{n} x_i'],
+  ['Integral', '\\int_{a}^{b} f(x)\\,dx'],
+  ['Greek', '\\alpha \\beta \\gamma \\pi'],
+  ['Matrix', '\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}'],
+];
+
+export function EquationDialog({ editor, range, initial, editing, onClose }) {
+  const [latex, setLatex] = useState(initial?.latex || '');
+  const [display, setDisplay] = useState(!!initial?.display);
+  const previewRef = useRef(null);
+  const areaRef = useRef(null);
+  const areaId = useId();
+
+  useEffect(() => {
+    const el = previewRef.current;
+    if (!el) return undefined;
+    if (!latex.trim()) {
+      el.textContent = 'The preview appears here.';
+      return undefined;
+    }
+    let alive = true;
+    import('../editor/extensions/math.js').then(({ renderMath }) => alive && renderMath(el, latex, display));
+    return () => {
+      alive = false;
+    };
+  }, [latex, display]);
+
+  const addSnippet = (text) => {
+    const ta = areaRef.current;
+    const start = ta ? ta.selectionStart : latex.length;
+    const end = ta ? ta.selectionEnd : latex.length;
+    setLatex(latex.slice(0, start) + text + latex.slice(end));
+    requestAnimationFrame(() => ta && ta.focus());
+  };
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (!latex.trim()) return;
+    if (editing) {
+      editor.chain().focus().setNodeSelection(range.from).run();
+      editor.commands.updateMath({ latex, display });
+    } else atRange(editor, range).insertMath({ latex, display }).run();
+    onClose();
+  };
+
+  return (
+    <Dialog title={editing ? 'Edit equation' : 'Insert equation'} size="md" onClose={onClose} description="Write the equation in LaTeX. Word, Markdown and text exports keep it as LaTeX source between dollar signs.">
+      <form onSubmit={submit}>
+        <label className="field-label" htmlFor={areaId}>LaTeX</label>
+        <textarea id={areaId} ref={areaRef} className="input" rows={3} maxLength={2000} value={latex} onChange={(e) => setLatex(e.target.value)} data-autofocus spellCheck={false} placeholder="E = mc^2" />
+        <div className="snippet-row" role="group" aria-label="Insert a common form">
+          {SNIPPETS.map(([label, text]) => (
+            <button key={label} type="button" className="chip" onClick={() => addSnippet(text)}>{label}</button>
+          ))}
+        </div>
+        <label className="check">
+          <input type="checkbox" checked={display} onChange={(e) => setDisplay(e.target.checked)} /> Large, centred (display style)
+        </label>
+        <p className="field-label">Preview</p>
+        <div ref={previewRef} className="equation-preview" aria-live="polite" />
+        <div className="dialog-footer inline">
+          <button type="button" className="btn" onClick={onClose}>Cancel</button>
+          <button type="submit" className="btn btn-primary" disabled={!latex.trim()}>{editing ? 'Update' : 'Insert'}</button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+// ------------------------------------------------------------------ Footnote & comment
+
+export function FootnoteDialog({ editor, range, initial, editing, onClose }) {
+  const [note, setNote] = useState(initial || '');
+  const id = useId();
+  const submit = (e) => {
+    e.preventDefault();
+    if (!note.trim()) return;
+    if (editing) {
+      editor.chain().focus().setNodeSelection(range.from).run();
+      editor.commands.updateFootnote(note);
+    } else atRange(editor, range).insertFootnote(note).run();
+    onClose();
+  };
+  return (
+    <Dialog title={editing ? 'Edit footnote' : 'Insert footnote'} size="md" onClose={onClose} description="The note is numbered automatically and listed under the document.">
+      <form onSubmit={submit}>
+        <label className="field-label" htmlFor={id}>Note</label>
+        <textarea id={id} className="input" rows={4} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} data-autofocus />
+        <div className="dialog-footer inline">
+          <button type="button" className="btn" onClick={onClose}>Cancel</button>
+          <button type="submit" className="btn btn-primary" disabled={!note.trim()}>{editing ? 'Update' : 'Insert'}</button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+export function CommentDialog({ excerpt, onSubmit, onClose }) {
+  const [text, setText] = useState('');
+  const id = useId();
+  return (
+    <Dialog title="Add comment" size="md" onClose={onClose} description={excerpt ? `On: “${excerpt.slice(0, 120)}${excerpt.length > 120 ? '…' : ''}”` : undefined}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (text.trim()) onSubmit(text);
+        }}
+      >
+        <label className="field-label" htmlFor={id}>Comment</label>
+        <textarea id={id} className="input" rows={4} maxLength={2000} value={text} onChange={(e) => setText(e.target.value)} data-autofocus />
+        <p className="hint">Comments stay in this browser with the document. They are not included in exports.</p>
+        <div className="dialog-footer inline">
+          <button type="button" className="btn" onClick={onClose}>Cancel</button>
+          <button type="submit" className="btn btn-primary" disabled={!text.trim()}>Comment</button>
+        </div>
+      </form>
     </Dialog>
   );
 }
