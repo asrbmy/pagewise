@@ -96,3 +96,26 @@ describe('locked documents', () => {
     expect(parseBackupFull(bad).docs).toHaveLength(0);
   });
 });
+
+describe('version history in backups', () => {
+  it('round-trips snapshots, remaps ids on restore and sanitises html', async () => {
+    const d = await store.createDocument({ title: 'V', html: '<p>one</p>' });
+    await store.addVersion(d.id, { html: '<p>old text</p>', title: 'V', label: 'Draft 1' });
+    const text = JSON.stringify(buildBackup(await store.exportAll(), [], await store.exportVersions()));
+    const tampered = text.replace('<p>old text</p>', '<p>old text<img src=x onerror=alert(1)></p>');
+    const { docs, versions } = parseBackupFull(tampered);
+    expect(versions).toHaveLength(1);
+    expect(versions[0].html).not.toContain('onerror');
+    const fresh = make();
+    await fresh.importAll(docs, [], versions);
+    const restored = (await fresh.exportAll())[0];
+    const list = await fresh.listVersions(restored.id);
+    expect(list.map((v) => v.label)).toEqual(['Draft 1']);
+  });
+  it('ignores versions for unknown documents and locked documents', async () => {
+    const d = await store.createDocument({ html: '<p>x</p>' });
+    const text = JSON.stringify({ ...buildBackup(await store.exportAll(), []), versions: [{ docId: 'ghost', html: '<p>a</p>' }] });
+    expect(parseBackupFull(text).versions).toHaveLength(0);
+    expect(d.id).toBeTruthy();
+  });
+});

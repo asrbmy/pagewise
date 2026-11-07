@@ -122,3 +122,52 @@ describe('backup reminder', () => {
     expect(backupReminderDue({ lastBackupAt: now - 20 * DAY, backupSnoozedUntil: now + DAY }, docs, now)).toBe(false);
   });
 });
+
+import JSZip from 'jszip';
+import { importOdt } from '../src/io/odtImport.js';
+import { rtfToHtml } from '../src/io/rtfImport.js';
+import { buildEpub } from '../src/io/epub.js';
+import { applyStylesToHtml } from '../src/editor/styles.js';
+
+describe('hostile files through the newer importers/exporters', () => {
+  const OFFICE = 'urn:oasis:names:tc:opendocument:xmlns:office:1.0';
+  const odtWith = async (body, extraRoot = '') => {
+    const zip = new JSZip();
+    zip.file('mimetype', 'application/vnd.oasis.opendocument.text');
+    zip.file(
+      'content.xml',
+      `<?xml version="1.0"?>${extraRoot}<office:document-content xmlns:office="${OFFICE}" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0"><office:body><office:text>${body}</office:text></office:body></office:document-content>`,
+    );
+    const buf = await zip.generateAsync({ type: 'arraybuffer' });
+    return { arrayBuffer: async () => buf };
+  };
+
+  it('ODT: drops javascript links and script text becomes inert text', async () => {
+    const { html } = await importOdt(await odtWith('<text:p><text:a xlink:href="javascript:alert(1)">click</text:a> &lt;script&gt;alert(2)&lt;/script&gt; <text:a xlink:href="https://ok.test/">fine</text:a></text:p>'));
+    expect(html).not.toMatch(/javascript:/i);
+    expect(html).not.toMatch(/<script/i);
+    expect(html).toContain('https://ok.test/');
+    expect(html).toContain('click');
+  });
+  it('ODT: an entity-expansion document does not hang or crash', async () => {
+    const bomb = '<!DOCTYPE x [<!ENTITY a "aaaaaaaaaa"><!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;"><!ENTITY c "&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;">]>';
+    const started = Date.now();
+    await importOdt(await odtWith('<text:p>&c;</text:p>', bomb)).catch(() => {});
+    expect(Date.now() - started).toBeLessThan(5000);
+  });
+  it('RTF: markup in text is escaped and control words cannot inject HTML', () => {
+    const html = rtfToHtml('{\\rtf1 <img src=x onerror=alert(1)> \\par <b>x</b>}');
+    expect(html).not.toMatch(/<img/i);
+    expect(html).toContain('&lt;img');
+  });
+  it('EPUB: no script, event handlers or remote resources survive', async () => {
+    const { blob } = await buildEpub('<p onclick="x()">a</p><img src="https://evil.test/p.png"><iframe src="https://evil.test"></iframe><script>1</script>', { title: 'T' });
+    const zip = await JSZip.loadAsync(await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsArrayBuffer(blob); }));
+    const all = (await Promise.all(Object.keys(zip.files).filter((n) => /xhtml$/.test(n)).map((n) => zip.file(n).async('string')))).join('\n');
+    expect(all).not.toMatch(/onclick|<script|<iframe|evil\.test/i);
+  });
+  it('document styles cannot smuggle CSS into exports', () => {
+    const html = applyStylesToHtml('<p>x</p>', { normal: { color: '#ff0000; background:url(http://evil.test/x)', font: 'x; behavior:url(x)' } });
+    expect(html).toBe('<p>x</p>');
+  });
+});

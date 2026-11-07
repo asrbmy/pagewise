@@ -1,18 +1,47 @@
 import { Node, mergeAttributes } from '@tiptap/core';
+import { paginationKey } from './pagination.js';
 
 const MAX_LEVEL = 3;
 
-/** Headings (levels 1-3) in document order, ignoring any inside a table of contents. */
-export function collectHeadings(doc) {
-  const out = [];
-  doc.descendants((node) => {
+/** Give every contents-eligible heading its `h-n` id (in document order) inside a transaction. */
+export function assignHeadingIds(tr) {
+  let n = 0;
+  tr.doc.descendants((node, pos) => {
     if (node.type.name === 'tableOfContents') return false;
     if (node.type.name === 'heading' && node.attrs.level <= MAX_LEVEL && node.textContent.trim()) {
-      out.push({ level: node.attrs.level, text: node.textContent.trim() });
+      n += 1;
+      const id = `h-${n}`;
+      if (node.attrs.id !== id) tr.setNodeMarkup(pos, undefined, { ...node.attrs, id });
+    }
+    return true;
+  });
+}
+
+/** Headings (levels 1-3) in document order, ignoring any inside a table of contents. */
+export function collectHeadings(doc, pageOf = null) {
+  const out = [];
+  doc.descendants((node, pos) => {
+    if (node.type.name === 'tableOfContents') return false;
+    if (node.type.name === 'heading' && node.attrs.level <= MAX_LEVEL && node.textContent.trim()) {
+      out.push({ level: node.attrs.level, text: node.textContent.trim(), id: `h-${out.length + 1}`, page: pageOf ? pageOf(pos) : null });
     }
     return true;
   });
   return out;
+}
+
+/** Page number of the block at `pos` from the on-screen layout, or null when page gaps are off. */
+export function pageResolver(editor) {
+  const st = paginationKey.getState(editor.state);
+  if (!st || !st.enabled || !editor.view) return null;
+  return (pos) => {
+    try {
+      const dom = editor.view.nodeDOM(pos);
+      return dom && dom.nodeType === 1 && dom.offsetHeight ? Math.floor((dom.offsetTop + 1) / st.pageHeight) + 1 : null;
+    } catch {
+      return null;
+    }
+  };
 }
 
 /** Editor JSON for the contents of a table of contents. */
@@ -26,7 +55,10 @@ export function tocContent(headings) {
     ...headings.map((h) => ({
       type: 'paragraph',
       attrs: { indent: h.level - 1 },
-      content: [{ type: 'text', text: h.text }],
+      content: [
+        { type: 'text', text: h.text, marks: [{ type: 'link', attrs: { href: `#${h.id}` } }] },
+        ...(h.page ? [{ type: 'text', text: ` · p. ${h.page}` }] : []),
+      ],
     })),
   ];
 }
@@ -34,7 +66,7 @@ export function tocContent(headings) {
 /**
  * A table of contents built from the document's headings. It is ordinary, editable content kept
  * in a wrapper block so "Update table of contents" can regenerate it later; exports see plain
- * paragraphs. Entries are not page-numbered or linked (the editor has no true pagination).
+ * paragraphs. Entries link to their headings (Ctrl/Cmd-click or click in the editor jumps there); with page gaps on (View menu) they also show page numbers, which are as exact as the on-screen layout.
  */
 export const TableOfContents = Node.create({
   name: 'tableOfContents',
@@ -55,18 +87,19 @@ export const TableOfContents = Node.create({
     return {
       insertTableOfContents:
         () =>
-        ({ editor, chain }) =>
-          chain()
-            .insertContent([{ type: this.name, content: tocContent(collectHeadings(editor.state.doc)) }, { type: 'paragraph' }])
-            .run(),
+        ({ editor, tr, dispatch, commands }) => {
+          if (dispatch) assignHeadingIds(tr);
+          return commands.insertContent([{ type: this.name, content: tocContent(collectHeadings(tr.doc, pageResolver(editor))) }, { type: 'paragraph' }]);
+        },
 
       updateTableOfContents:
         () =>
         ({ editor, tr, dispatch }) => {
-          const { doc, schema } = editor.state;
-          const headings = collectHeadings(doc);
+          const { schema } = editor.state;
+          if (dispatch) assignHeadingIds(tr);
+          const headings = collectHeadings(tr.doc, pageResolver(editor));
           const found = [];
-          doc.descendants((node, pos) => {
+          tr.doc.descendants((node, pos) => {
             if (node.type.name === this.name) found.push({ node, pos });
             return node.type.name !== this.name;
           });

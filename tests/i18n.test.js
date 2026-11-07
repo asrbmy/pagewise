@@ -6,6 +6,8 @@ describe('i18n', () => {
     expect(resolveLanguage('auto', 'es-MX')).toBe('es');
     expect(resolveLanguage('auto', 'fr-CA')).toBe('fr');
     expect(resolveLanguage('auto', 'ja-JP')).toBe('en');
+    expect(resolveLanguage('auto', 'hi-IN')).toBe('hi');
+    expect(resolveLanguage('auto', 'pt-BR')).toBe('pt');
     expect(resolveLanguage('fr', 'es')).toBe('fr');
     expect(resolveLanguage('xx', 'en')).toBe('en');
   });

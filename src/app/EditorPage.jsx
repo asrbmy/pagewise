@@ -5,13 +5,20 @@ import { buildExtensions } from '../editor/extensions/index.js';
 import { cleanPastedHtml } from '../editor/pasteClean.js';
 import { fileToImageDataUrl, isImageFile } from '../editor/images.js';
 import { PAGE_SIZES, PAGE_MARGIN, ZOOM_LEVELS } from '../editor/constants.js';
-import { normalizeLayout, pageMarginRules } from '../editor/layout.js';
+import { normalizeLayout, pageMarginRules, pageGeometry } from '../editor/layout.js';
+import { normalizeStyles, stylesCss } from '../editor/styles.js';
+import StylesDialog from '../components/StylesDialog.jsx';
 import { normalizeComments, newCommentId, resolvedCss } from '../editor/comments.js';
 import CommentsPanel from '../components/CommentsPanel.jsx';
 import TemplateDialog from '../components/TemplateDialog.jsx';
 import { store, AUTO_VERSION_INTERVAL } from '../storage/documents.js';
+import CropDialog from '../components/CropDialog.jsx';
 import DrawingDialog from '../components/DrawingDialog.jsx';
 import VersionDialog from '../components/VersionDialog.jsx';
+import { buildDiagnostics } from './diagnostics.js';
+import OutlinePanel from '../components/OutlinePanel.jsx';
+import BookmarkDialog from '../components/BookmarkDialog.jsx';
+import SpecialCharsDialog from '../components/SpecialCharsDialog.jsx';
 import LockDialog, { UnlockScreen } from '../components/LockDialog.jsx';
 import { exportAndDownload, EXPORTERS } from '../io/export.js';
 import { downloadBackup } from '../io/backup.js';
@@ -95,10 +102,13 @@ function EditorSurface({ doc }) {
   const [title, setTitle] = useState(doc.title);
   const t = useT();
   const [locked, setLocked] = useState(!!doc.locked);
+  const [focusMode, setFocusMode] = useState(false);
   const [pageSize, setPageSizeState] = useState(doc.pageSize || 'letter');
   const [layout, setLayout] = useState(() => normalizeLayout(doc.layout));
+  const [docStyles, setDocStyles] = useState(() => normalizeStyles(doc.styles));
   const [comments, setCommentsState] = useState(() => normalizeComments(doc.comments));
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [outlineOpen, setOutlineOpen] = useState(false);
   const commentsRef = useRef(comments);
   const [updatedAt, setUpdatedAt] = useState(doc.updatedAt);
   const [saveState, setSaveState] = useState('saved'); // saved | dirty | saving | error
@@ -256,6 +266,17 @@ function EditorSurface({ doc }) {
         'aria-label': 'Document body',
         spellcheck: String(prefs.spellcheck),
       },
+      handleDOMEvents: {
+        click(_view, event) {
+          const a = event.target instanceof Element ? event.target.closest('a[href^="#h-"], a[href^="#bm-"]') : null;
+          if (!a) return false;
+          event.preventDefault();
+          const ref = a.getAttribute('href').slice(1);
+          const target = ref.startsWith('bm-') ? document.querySelector(`[data-bookmark="${CSS.escape(ref.slice(3))}"]`) : document.getElementById(ref);
+          if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          return true;
+        },
+      },
       transformPastedHTML: cleanPastedHtml,
       handlePaste(_view, event) {
         const files = Array.from(event.clipboardData?.files || []).filter(isImageFile);
@@ -283,7 +304,7 @@ function EditorSurface({ doc }) {
   }, [editor, prefs.spellcheck]);
 
   // Page size drives print layout (@page) and zoom maths.
-  const page = PAGE_SIZES[pageSize] || PAGE_SIZES.letter;
+  const page = pageGeometry(pageSize, layout);
   useEffect(() => {
     const style = document.createElement('style');
     style.id = 'pw-page-style';
@@ -291,6 +312,7 @@ function EditorSurface({ doc }) {
     document.head.appendChild(style);
     return () => style.remove();
   }, [page.css, layout]);
+  const multiColumn = page.columns > 1;
 
   // Measure the canvas and the document body.
   useEffect(() => {
@@ -317,13 +339,14 @@ function EditorSurface({ doc }) {
   const pageW = reflow ? Math.max(280, canvasWidth - 16) : page.width;
   const zoomValue = reflow ? 1 : zoom === 'fit' ? Math.max(0.3, Math.min(2, (canvasWidth - 32) / page.width)) : zoom;
   const pages = Math.max(1, Math.ceil((contentHeight - 4) / page.height));
+  const pageFurniture = prefs.pagination && !reflow && !multiColumn && (layout.header || layout.footer || layout.pageNumbers !== 'none');
   const sheetHeight = reflow ? Math.max(contentHeight, 480) : pages * page.height;
 
   // Tell the pagination plugin the page geometry; it is off in the phone reflow view.
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    editor.commands.setPagination({ enabled: prefs.pagination && !reflow, pageHeight: page.height, margin: PAGE_MARGIN });
-  }, [editor, prefs.pagination, reflow, page.height]);
+    editor.commands.setPagination({ enabled: prefs.pagination && !reflow && !multiColumn, pageHeight: page.height, margin: PAGE_MARGIN });
+  }, [editor, prefs.pagination, reflow, multiColumn, page.height]);
 
   const setZoomClamped = (z) => setZoom(z === 'fit' ? 'fit' : Math.min(2, Math.max(0.25, z)));
   const zoomStep = (dir) => {
@@ -374,6 +397,36 @@ function EditorSurface({ doc }) {
       goHome();
     });
 
+  // Focus mode hides the chrome; Escape leaves it.
+  useEffect(() => {
+    document.body.classList.toggle('focus-mode', focusMode);
+    if (!focusMode) return undefined;
+    const onKey = (e) => e.key === 'Escape' && !document.querySelector('.dialog') && setFocusMode(false);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.classList.remove('focus-mode');
+    };
+  }, [focusMode]);
+
+  // A locked document closes itself after a period without typing, clicking or touching.
+  useEffect(() => {
+    const minutes = prefs.autoLockMinutes;
+    if (!locked || !minutes) return undefined;
+    let timer;
+    const arm = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => lockNow(), minutes * 60 * 1000);
+    };
+    const events = ['keydown', 'pointerdown', 'wheel', 'touchstart'];
+    events.forEach((ev) => window.addEventListener(ev, arm, { passive: true }));
+    arm();
+    return () => {
+      clearTimeout(timer);
+      events.forEach((ev) => window.removeEventListener(ev, arm));
+    };
+  }, [locked, prefs.autoLockMinutes]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const exportAs = async (format) => {
     if (!editor || busyExport) return;
     setBusyExport(true);
@@ -381,7 +434,7 @@ function EditorSurface({ doc }) {
     const label = EXPORTERS[format].label;
     const pending = toast(`Preparing ${label}…`, { duration: 0 });
     try {
-      const result = await exportAndDownload(format, { title, html: editor.getHTML(), pageSize, layout });
+      const result = await exportAndDownload(format, { title, html: editor.getHTML(), pageSize, layout, styles: docStyles });
       toast.dismiss(pending);
       toast(`Downloaded ${result.filename}`, { kind: result.warnings.length ? 'warning' : 'success', details: result.warnings });
     } catch (err) {
@@ -524,6 +577,7 @@ function EditorSurface({ doc }) {
             ...(locked
               ? [
                   { label: t('Lock now'), onSelect: lockNow },
+                  { label: `${t('Auto-lock after idle')}: ${prefs.autoLockMinutes ? t('{n} min', { n: prefs.autoLockMinutes }) : t('Off')}`, onSelect: () => setPrefs({ autoLockMinutes: ({ 0: 5, 5: 15, 15: 30, 30: 0 })[prefs.autoLockMinutes] ?? 15 }) },
                   { label: t('Remove password…'), onSelect: () => setDialog({ type: 'unlock' }) },
                 ]
               : [{ label: t('Lock with password…'), onSelect: () => setDialog({ type: 'lock' }) }]),
@@ -542,6 +596,7 @@ function EditorSurface({ doc }) {
               }
             } },
             { separator: true },
+            { label: t('Document styles…'), onSelect: () => setDialog({ type: 'styles' }) },
             { label: t('Page setup…'), onSelect: () => setDialog({ type: 'page' }) },
             { label: t('Delete document…'), onSelect: () => setDialog({ type: 'delete' }) },
           ],
@@ -574,8 +629,10 @@ function EditorSurface({ doc }) {
             { label: t('Match system'), checked: prefs.theme === 'system', onSelect: () => setPrefs({ theme: 'system' }) },
             { separator: true },
             { label: t('Show page gaps (text never crosses a page edge)'), checked: prefs.pagination, onSelect: () => setPrefs({ pagination: !prefs.pagination }) },
+            { label: t('Outline'), checked: outlineOpen, onSelect: () => setOutlineOpen(!outlineOpen) },
             { label: t('Comments panel'), checked: commentsOpen, onSelect: () => setCommentsOpen(!commentsOpen) },
             { label: t('Show status bar'), checked: prefs.showStatusBar, onSelect: () => setPrefs({ showStatusBar: !prefs.showStatusBar }) },
+            { label: t('Focus mode (Esc to exit)'), onSelect: () => setFocusMode(true) },
             { label: t('Full screen'), onSelect: () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.()) },
           ],
         },
@@ -584,6 +641,7 @@ function EditorSurface({ doc }) {
           items: [
             { label: t('Link…'), shortcut: `${MOD}K`, onSelect: () => openInsertDialog('link') },
             { label: t('Image…'), onSelect: () => openInsertDialog('image') },
+            { label: t('Caption (figure or table)'), onSelect: act(() => chain().insertCaption({ figure: t('Figure'), table: t('Table') }).run()) },
             { label: t('Table…'), onSelect: () => openInsertDialog('table') },
             { label: t('Equation…'), onSelect: () => openInsertDialog('equation') },
             { label: t('Edit selected equation…'), disabled: !(editor.state.selection.node && editor.state.selection.node.type.name === 'math'), onSelect: () => openInsertDialog('equation') },
@@ -594,7 +652,16 @@ function EditorSurface({ doc }) {
             { separator: true },
             { label: t('Horizontal line'), onSelect: run('setHorizontalRule') },
             { label: t('Page break'), shortcut: `${MOD}Enter`, onSelect: run('setPageBreak') },
-            { label: t('Table of contents'), onSelect: run('insertTableOfContents') },
+            { label: t('Bookmark…'), onSelect: () => openInsertDialog('bookmark') },
+            { label: t('Special characters…'), onSelect: () => openInsertDialog('chars') },
+            {
+              label: t('Table of contents'),
+              onSelect: () => {
+                run('insertTableOfContents')();
+                // the new contents block shifts later headings, so refresh the page numbers once laid out
+                if (prefs.pagination) setTimeout(() => editor?.commands.updateTableOfContents(), 800);
+              },
+            },
             { label: t('Update table of contents'), onSelect: run('updateTableOfContents') },
             { label: t('Block quote'), checked: editor.isActive('blockquote'), onSelect: run('toggleBlockquote') },
           ],
@@ -627,6 +694,18 @@ function EditorSurface({ doc }) {
               onSelect: () => chain().setTextAlign(a).run(),
             })),
             { separator: true },
+            { heading: t('Text direction') },
+            {
+              label: t('Left-to-right'),
+              checked: editor.isActive({ dir: 'ltr' }),
+              onSelect: () => chain().setTextDirection('ltr').run(),
+            },
+            {
+              label: t('Right-to-left'),
+              checked: editor.isActive({ dir: 'rtl' }),
+              onSelect: () => chain().setTextDirection('rtl').run(),
+            },
+            { separator: true },
             { heading: t('Line spacing') },
             ...[['Single', '1'], ['1.15', '1.15'], ['1.5', '1.5'], ['Double', '2']].map(([label, v]) => ({
               label: `Line spacing: ${label}`,
@@ -647,6 +726,7 @@ function EditorSurface({ doc }) {
                   { separator: true },
                   { heading: t('Selected image') },
                   ...['25%', '50%', '75%', '100%'].map((w) => ({ label: `Image width ${w}`, checked: imageWidth === w, onSelect: () => chain().updateAttributes('image', { width: w }).run() })),
+                  ...(/^data:image\/(png|jpe?g|gif|webp)/i.test(editor?.getAttributes('image').src || '') ? [{ label: t('Image: crop…'), onSelect: () => setDialog({ type: 'crop', src: editor.getAttributes('image').src }) }] : []),
                   { label: t('Image: original size'), checked: !imageWidth, onSelect: () => chain().updateAttributes('image', { width: null }).run() },
                 ]
               : []),
@@ -669,6 +749,17 @@ function EditorSurface({ doc }) {
             { label: t('Privacy and storage'), onSelect: () => setDialog({ type: 'privacy' }) },
             { label: t('Install Pagewise as an app'), onSelect: promptInstall, disabled: !pwa.canInstall },
             { separator: true },
+            {
+              label: t('Copy diagnostics'),
+              onSelect: async () => {
+                try {
+                  await navigator.clipboard.writeText(await buildDiagnostics());
+                  toast(t('Diagnostics copied. They contain no document text or titles.'), { kind: 'success' });
+                } catch {
+                  toast(t('Could not copy to the clipboard.'), { kind: 'error' });
+                }
+              },
+            },
             { label: t('About Pagewise'), onSelect: () => setDialog({ type: 'about' }) },
           ],
         },
@@ -696,6 +787,11 @@ function EditorSurface({ doc }) {
 
   return (
     <div className={`app-shell editor-shell ${reflow ? 'reflow' : ''}`} style={{ '--page-w': `${pageW}px`, '--page-h': `${page.height}px`, '--page-pad': reflow ? '20px' : '96px' }}>
+      {focusMode && (
+        <button type="button" className="btn btn-small focus-exit" onClick={() => setFocusMode(false)}>
+          {t('Exit focus mode')}
+        </button>
+      )}
       <header className="topbar">
         <button type="button" className="home-link" onClick={() => leaveTo(goHome)} aria-label="Back to all documents" title="All documents">
           <Logo size={34} />
@@ -778,6 +874,7 @@ function EditorSurface({ doc }) {
           <div className="sheet-scaler" style={{ width: pageW, transform: `scale(${zoomValue})` }}>
             <div
               className="sheet"
+              data-columns={multiColumn && !reflow ? page.columns : undefined}
               style={{ minHeight: sheetHeight }}
               onMouseDown={(e) => {
                 // clicking the margin / empty area below the text should still focus the document
@@ -787,16 +884,34 @@ function EditorSurface({ doc }) {
                 }
               }}
             >
-              {layout.header && <div className="sheet-furniture sheet-header" aria-hidden="true">{layout.header}</div>}
+              {!pageFurniture && layout.header && <div className="sheet-furniture sheet-header" aria-hidden="true">{layout.header}</div>}
               <EditorContent editor={editor} />
-              {layout.footer && <div className="sheet-furniture sheet-footer" aria-hidden="true">{layout.footer}</div>}
+              {!pageFurniture && layout.footer && <div className="sheet-furniture sheet-footer" aria-hidden="true">{layout.footer}</div>}
+              {pageFurniture &&
+                Array.from({ length: pages }, (_, i) => {
+                  const n = `${t('Page')} ${i + 1}`;
+                  const pos = layout.pageNumbers;
+                  const merged = layout.footer && pos === 'center';
+                  return (
+                    <div key={i} className="page-furniture" aria-hidden="true" style={{ top: i * page.height, height: page.height }}>
+                      {layout.header && <div className="pf-header">{layout.header}</div>}
+                      <div className="pf-footer">
+                        <span className="pf-left">{pos === 'left' ? n : ''}</span>
+                        <span className="pf-center">{merged ? `${layout.footer} · ${n}` : layout.footer}</span>
+                        <span className="pf-right">{pos === 'right' ? n : ''}</span>
+                      </div>
+                    </div>
+                  );
+                })}
             </div>
           </div>
         </div>
       </main>
 
+      {outlineOpen && editor && <OutlinePanel editor={editor} onClose={() => setOutlineOpen(false)} />}
       {commentsOpen && editor && <CommentsPanel editor={editor} comments={comments} onChange={setComments} onClose={() => setCommentsOpen(false)} />}
       <style>{resolvedCss(comments)}</style>
+      <style>{stylesCss(docStyles)}</style>
 
       {prefs.showStatusBar && (
         <footer className="statusbar" aria-label="Document status">
@@ -804,7 +919,7 @@ function EditorSurface({ doc }) {
             {selText ? `${selWords.toLocaleString()} of ${(cc?.words() || 0).toLocaleString()} words selected` : `${(cc?.words() || 0).toLocaleString()} words`}
           </span>
           <span>{(cc?.characters() || 0).toLocaleString()} characters</span>
-          <span>{reflow ? 'Reflow view' : `${pages} page${pages === 1 ? '' : 's'} · ${pageSize === 'a4' ? 'A4' : 'Letter'}`}</span>
+          <span>{reflow ? 'Reflow view' : `${pages} page${pages === 1 ? '' : 's'} · ${pageSize === 'a4' ? 'A4' : 'Letter'}${page.landscape ? ' landscape' : ''}${multiColumn ? ` · ${page.columns} columns` : ''}`}</span>
           <span className="spacer" />
           <span className="hide-small">{prefs.spellcheck ? 'Spell check on' : 'Spell check off'}</span>
           <span>{Math.round(zoomValue * 100)}%</span>
@@ -826,6 +941,33 @@ function EditorSurface({ doc }) {
       {dialog?.type === 'image' && editor && <ImageDialog editor={editor} range={dialog.range} onClose={closeDialog} notify={toast} />}
       {dialog?.type === 'table' && editor && <TableDialog editor={editor} range={dialog.range} onClose={closeDialog} />}
       {dialog?.type === 'equation' && editor && <EquationDialog editor={editor} range={dialog.range} initial={dialog.math} editing={!!dialog.math} onClose={closeDialog} />}
+      {dialog?.type === 'crop' && (
+        <CropDialog
+          src={dialog.src}
+          onClose={closeDialog}
+          onApply={(url) => {
+            chain().updateAttributes('image', { src: url }).run();
+            closeDialog();
+          }}
+        />
+      )}
+      {dialog?.type === 'styles' && (
+        <StylesDialog
+          styles={docStyles}
+          onClose={closeDialog}
+          onApply={async (next) => {
+            setDocStyles(next);
+            closeDialog();
+            try {
+              await store.saveDocument(doc.id, { styles: next });
+            } catch (err) {
+              toast(err.message, { kind: 'error' });
+            }
+          }}
+        />
+      )}
+      {dialog?.type === 'bookmark' && editor && <BookmarkDialog editor={editor} range={dialog.range} onClose={closeDialog} />}
+      {dialog?.type === 'chars' && editor && <SpecialCharsDialog editor={editor} range={dialog.range} onClose={closeDialog} />}
       {dialog?.type === 'footnote' && editor && <FootnoteDialog editor={editor} range={dialog.range} initial={dialog.footnote} editing={dialog.footnote !== null} onClose={closeDialog} />}
       {dialog?.type === 'comment' && editor && (
         <CommentDialog

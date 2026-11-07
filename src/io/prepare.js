@@ -3,9 +3,26 @@
  *  - footnote markers become superscript numbers, and the notes are appended as a numbered list;
  *  - comment marks are unwrapped (comments are not exported).
  */
-export function prepareForExport(html) {
-  if (!html || !/data-type="footnote"|data-comment-id/.test(html)) return html;
+export function prepareForExport(html, { keepAnchors = false } = {}) {
+  const hasAnchors = !keepAnchors && /href="#(?:h-\d+|bm-[a-z0-9-]+)"/.test(html || '');
+  const marks = keepAnchors && /data-bookmark=/.test(html || '');
+  if (!html || !(hasAnchors || marks || /data-type="footnote"|data-comment-id/.test(html))) return html;
   const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
+  if (marks) {
+    // Exported pages have no editor script, so give each bookmarked block a real anchor element to jump to.
+    doc.body.querySelectorAll('[data-bookmark]').forEach((el) => {
+      const a = doc.createElement('a');
+      a.id = `bm-${el.getAttribute('data-bookmark')}`;
+      el.insertBefore(a, el.firstChild);
+    });
+  }
+  if (hasAnchors) {
+    // In-document links only work in HTML; elsewhere they would be dead links, so keep the text.
+    doc.body.querySelectorAll('a[href^="#h-"], a[href^="#bm-"]').forEach((a) => {
+      while (a.firstChild) a.parentNode.insertBefore(a.firstChild, a);
+      a.remove();
+    });
+  }
   doc.body.querySelectorAll('span[data-comment-id]').forEach((el) => {
     while (el.firstChild) el.parentNode.insertBefore(el.firstChild, el);
     el.remove();

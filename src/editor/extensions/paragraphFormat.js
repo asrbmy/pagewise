@@ -42,11 +42,22 @@ export const ParagraphFormat = Extension.create({
             parseHTML: (el) => {
               const v = parseInt(el.getAttribute('data-indent') || '0', 10);
               if (v) return v;
-              const ml = parseFloat(el.style.marginLeft || '0');
-              return ml > 0 && el.style.marginLeft.endsWith('px') ? Math.min(MAX_INDENT, Math.round(ml / INDENT_PX)) : 0;
+              const side = (el.getAttribute('dir') || '').toLowerCase() === 'rtl' ? 'marginRight' : 'marginLeft';
+              const ml = parseFloat(el.style[side] || '0');
+              return ml > 0 && el.style[side].endsWith('px') ? Math.min(MAX_INDENT, Math.round(ml / INDENT_PX)) : 0;
             },
             renderHTML: (a) =>
-              a.indent ? { 'data-indent': a.indent, style: `margin-left: ${a.indent * INDENT_PX}px` } : {},
+              a.indent
+                ? { 'data-indent': a.indent, style: `margin-${a.dir === 'rtl' ? 'right' : 'left'}: ${a.indent * INDENT_PX}px` }
+                : {},
+          },
+          dir: {
+            default: null,
+            parseHTML: (el) => {
+              const d = (el.getAttribute('dir') || '').toLowerCase();
+              return d === 'rtl' || d === 'ltr' ? d : null;
+            },
+            renderHTML: (a) => (a.dir === 'rtl' || a.dir === 'ltr' ? { dir: a.dir } : {}),
           },
         },
       },
@@ -92,6 +103,16 @@ export const ParagraphFormat = Extension.create({
           return changed;
         },
 
+      /** @param {'ltr'|'rtl'|null} dir text direction for the selected paragraphs/headings */
+      setTextDirection:
+        (dir) =>
+        ({ tr, state, dispatch }) => {
+          const value = dir === 'rtl' || dir === 'ltr' ? dir : null;
+          const changed = forTextBlocks(tr, state, () => ({ dir: value }));
+          if (changed && dispatch) dispatch(tr);
+          return changed;
+        },
+
       /** Indent paragraphs/headings; inside a list this nests the list item instead. */
       indent:
         () =>
@@ -121,6 +142,7 @@ export const ParagraphFormat = Extension.create({
     return {
       'Mod-]': () => this.editor.commands.indent(),
       'Mod-[': () => this.editor.commands.outdent(),
+      'Mod-Shift-x': () => this.editor.commands.setTextDirection(this.editor.isActive({ dir: 'rtl' }) ? 'ltr' : 'rtl'),
     };
   },
 });

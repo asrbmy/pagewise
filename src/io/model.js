@@ -111,6 +111,7 @@ function paraFormat(el) {
   const st = el.style || {};
   const fmt = {};
   if (['center', 'right', 'justify'].includes(st.textAlign)) fmt.align = st.textAlign;
+  if ((el.getAttribute('dir') || '').toLowerCase() === 'rtl') fmt.rtl = true;
   const indent = parseInt(el.getAttribute('data-indent') || '0', 10);
   if (indent) fmt.indent = indent; // levels of 0.5 inch
   const before = toPoints(st.marginTop);

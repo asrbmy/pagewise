@@ -9,7 +9,7 @@
  * Not representable (reported through `warnings` instead of failing silently):
  * images that are external URLs or SVG, which are replaced by their alt text.
  */
-import { normalizeLayout } from '../editor/layout.js';
+import { normalizeLayout, pageGeometry, COLUMN_GAP_PX } from '../editor/layout.js';
 import {
   Header,
   Footer,
@@ -20,6 +20,7 @@ import {
   TextRun,
   HeadingLevel,
   AlignmentType,
+  PageOrientation,
   Table,
   TableRow,
   TableCell,
@@ -54,6 +55,10 @@ const ALIGN = {
 };
 const INLINE_BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'UL', 'OL', 'TABLE', 'BLOCKQUOTE', 'HR', 'DIV', 'PRE', 'LI']);
 
+function cellFill(cell) {
+  return toHex(cell.style && cell.style.backgroundColor);
+}
+
 function toHex(color) {
   if (!color) return undefined;
   const c = color.trim().toLowerCase();
@@ -80,12 +85,12 @@ function firstFont(family) {
   return family.split(',')[0].replace(/["']/g, '').trim() || undefined;
 }
 
-function createContext(pageSize) {
-  const page = PAGE_SIZES[pageSize] || PAGE_SIZES.letter;
+function createContext(pageSize, layout) {
+  const page = pageGeometry(pageSize, layout);
   return {
     warnings: new Set(),
     page,
-    contentWidthPx: page.width - PAGE_MARGIN * 2,
+    contentWidthPx: Math.floor((page.width - PAGE_MARGIN * 2 - COLUMN_GAP_PX * (page.columns - 1)) / page.columns),
     listInstance: 0,
   };
 }
@@ -198,6 +203,10 @@ function paragraphProps(el, extra = {}) {
   const props = { ...extra };
   const st = el.style || {};
   if (st.textAlign && ALIGN[st.textAlign]) props.alignment = ALIGN[st.textAlign];
+  if ((el.getAttribute?.('dir') || '').toLowerCase() === 'rtl') {
+    props.bidirectional = true;
+    if (!props.alignment) props.alignment = AlignmentType.RIGHT;
+  }
   const spacing = { ...(props.spacing || {}) };
   const lh = parseFloat(st.lineHeight || '');
   if (lh > 0 && !st.lineHeight.endsWith('px')) {
@@ -286,7 +295,7 @@ function tableFrom(el, ctx) {
           children: kids.length ? kids : [new Paragraph({ children: [] })],
           columnSpan: parseInt(cell.getAttribute('colspan') || '1', 10) || 1,
           rowSpan: parseInt(cell.getAttribute('rowspan') || '1', 10) || 1,
-          ...(isHeader ? { shading: { type: ShadingType.CLEAR, fill: 'F1F3F4', color: 'auto' } } : {}),
+          ...(cellFill(cell) || isHeader ? { shading: { type: ShadingType.CLEAR, fill: cellFill(cell) || 'F1F3F4', color: 'auto' } } : {}),
           margins: { top: 60, bottom: 60, left: 100, right: 100 },
         });
       });
@@ -419,7 +428,7 @@ function docxFurniture(layout) {
  * @returns {{doc: Document, warnings: string[]}}
  */
 export function buildDocx(html, { title = 'Document', pageSize = 'letter', layout } = {}) {
-  const ctx = createContext(pageSize);
+  const ctx = createContext(pageSize, layout);
   const parsed = new DOMParser().parseFromString(`<body>${html || ''}</body>`, 'text/html');
   let children = blocksFrom(parsed.body, ctx);
   if (!children.length) children = [new Paragraph({ children: [] })];
@@ -445,9 +454,15 @@ export function buildDocx(html, { title = 'Document', pageSize = 'letter', layou
       {
         properties: {
           page: {
-            size: { width: ctx.page.docx.width, height: ctx.page.docx.height },
+            // docx-js swaps width and height itself for landscape, so pass the portrait size
+            size: {
+              width: Math.min(ctx.page.docx.width, ctx.page.docx.height),
+              height: Math.max(ctx.page.docx.width, ctx.page.docx.height),
+              orientation: ctx.page.landscape ? PageOrientation.LANDSCAPE : PageOrientation.PORTRAIT,
+            },
             margin: { top: 1440, bottom: 1440, left: 1440, right: 1440 },
           },
+          ...(ctx.page.columns > 1 ? { column: { count: ctx.page.columns, space: Math.round(COLUMN_GAP_PX * 15) } } : {}),
         },
         ...docxFurniture(layout),
         children,

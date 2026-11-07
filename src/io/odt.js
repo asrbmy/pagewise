@@ -24,6 +24,7 @@ export async function buildOdt(html, { pageSize = 'letter', layout, title = '' }
   const pStyle = (b, extra = '') => {
     const parent = b.heading ? `Heading_20_${b.heading}` : 'Standard';
     const attrs = [];
+    if (b.rtl) attrs.push('style:writing-mode="rl-tb"');
     if (b.align) attrs.push(`fo:text-align="${b.align === 'justify' ? 'justify' : b.align}"`);
     if (b.indent) attrs.push(`fo:margin-left="${(b.indent * 0.5).toFixed(2)}in"`);
     if (b.before) attrs.push(`fo:margin-top="${b.before}pt"`);
@@ -178,7 +179,8 @@ export async function buildOdt(html, { pageSize = 'letter', layout, title = '' }
   const contentXml = `<?xml version="1.0" encoding="UTF-8"?>\n<office:document-content ${NS} office:version="1.2">${fontXml}<office:automatic-styles>${autoStyles}</office:automatic-styles><office:body><office:text>${content || '<text:p text:style-name="Standard"/>'}</office:text></office:body></office:document-content>`;
 
   const l = normalizeLayout(layout);
-  const size = PAGE[pageSize] || PAGE.letter;
+  const base = PAGE[pageSize] || PAGE.letter;
+  const size = l.orientation === 'landscape' ? { w: base.h, h: base.w } : base;
   const pageNum = '<text:page-number text:select-page="current"/>';
   const footerParas = [];
   if (l.footer) footerParas.push(`<text:p text:style-name="FooterC">${xmlEscape(l.footer)}${l.pageNumbers === 'center' ? ` · Page ${pageNum}` : ''}</text:p>`);
@@ -193,7 +195,7 @@ ${[1, 2, 3, 4, 5, 6].map((n) => `<style:style style:name="Heading_20_${n}" style
 <style:style style:name="FooterL" style:family="paragraph" style:parent-style-name="HeaderC"><style:paragraph-properties fo:text-align="start"/></style:style>
 <style:style style:name="FooterC" style:family="paragraph" style:parent-style-name="HeaderC"/>
 <style:style style:name="FooterR" style:family="paragraph" style:parent-style-name="HeaderC"><style:paragraph-properties fo:text-align="end"/></style:style>
-</office:styles><office:automatic-styles><style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="${size.w}" fo:page-height="${size.h}" fo:margin-top="1in" fo:margin-bottom="1in" fo:margin-left="1in" fo:margin-right="1in"/></style:page-layout></office:automatic-styles>
+</office:styles><office:automatic-styles><style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="${size.w}" fo:page-height="${size.h}" fo:margin-top="1in" fo:margin-bottom="1in" fo:margin-left="1in" fo:margin-right="1in" style:print-orientation="${l.orientation}">${l.columns > 1 ? `<style:columns fo:column-count="${l.columns}" fo:column-gap="0.375in"/>` : ""}</style:page-layout-properties></style:page-layout></office:automatic-styles>
 <office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pm1">${l.header ? `<style:header><text:p text:style-name="HeaderC">${xmlEscape(l.header)}</text:p></style:header>` : ''}${footerParas.length ? `<style:footer>${footerParas.join('')}</style:footer>` : ''}</style:master-page></office:master-styles></office:document-styles>`;
 
   const metaXml = `<?xml version="1.0" encoding="UTF-8"?>\n<office:document-meta ${NS} office:version="1.2"><office:meta><dc:title>${xmlEscape(title)}</dc:title><meta:generator>Pagewise</meta:generator></office:meta></office:document-meta>`;

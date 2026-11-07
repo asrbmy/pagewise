@@ -1,5 +1,9 @@
 import StarterKit from '@tiptap/starter-kit';
 import { Underline } from '@tiptap/extension-underline';
+import { Bookmark, isBookmarkHref } from './bookmark.js';
+import { Caption } from './caption.js';
+import { CellColor } from './cellColor.js';
+import { HeadingIds } from './headingIds.js';
 import { Link } from '@tiptap/extension-link';
 import { Image } from '@tiptap/extension-image';
 import { Table } from '@tiptap/extension-table';
@@ -53,8 +57,10 @@ export function buildExtensions({ placeholder = 'Start typing…' } = {}) {
       code: { HTMLAttributes: { class: 'pw-code' } },
     }),
     Underline,
+    HeadingIds,
     Link.configure({
       openOnClick: false,
+      isAllowedUri: (url, ctx) => /^#h-\d{1,5}$/.test(url) || isBookmarkHref(url) || ctx.defaultValidate(url),
       autolink: true,
       protocols: ['http', 'https', 'mailto', 'tel'],
       HTMLAttributes: { rel: 'noopener noreferrer nofollow', target: '_blank' },
@@ -64,6 +70,9 @@ export function buildExtensions({ placeholder = 'Start typing…' } = {}) {
     TableRow,
     TableHeader,
     TableCell,
+    CellColor,
+    Caption,
+    Bookmark,
     TextStyle,
     Color,
     Highlight.configure({ multicolor: true }),

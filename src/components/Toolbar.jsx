@@ -385,6 +385,25 @@ export default function Toolbar({ editor, zoom, onZoom, onLink, onImage, onTable
           <button type="button" className="btn btn-small" onMouseDown={(e) => e.preventDefault()} onClick={() => chain().toggleHeaderRow().run()}>
             Header row
           </button>
+          <select
+            className="tb-select"
+            aria-label="Cell colour"
+            value=""
+            onChange={(e) => {
+              const v = e.target.value;
+              chain().setCellAttribute('background', v === 'none' ? null : v).run();
+            }}
+          >
+            <option value="" disabled>
+              Cell colour
+            </option>
+            <option value="none">No colour</option>
+            <option value="#fff2cc">Yellow</option>
+            <option value="#d9ead3">Green</option>
+            <option value="#cfe2f3">Blue</option>
+            <option value="#f4cccc">Red</option>
+            <option value="#e6e6e6">Grey</option>
+          </select>
           <button type="button" className="btn btn-small btn-danger-text" onMouseDown={(e) => e.preventDefault()} onClick={() => chain().deleteTable().run()}>
             Delete table
           </button>

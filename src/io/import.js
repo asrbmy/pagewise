@@ -4,10 +4,12 @@
  * Every importer resolves to `{ title, html, warnings }`.
  */
 import { sanitizeHtml } from './sanitize.js';
+import { importOdt } from './odtImport.js';
+import { importRtf } from './rtfImport.js';
 import { embedColorsInDocx, makeTransform, styleMapRules, applyFormatting } from './wordFormat.js';
 
 export const MAX_IMPORT_BYTES = 40 * 1024 * 1024;
-export const IMPORT_ACCEPT = '.docx,.txt,.md,.markdown,.html,.htm,text/plain,text/markdown,text/html';
+export const IMPORT_ACCEPT = '.docx,.odt,.rtf,.txt,.md,.markdown,.html,.htm,text/plain,text/markdown,text/html';
 
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -92,6 +94,20 @@ export async function importFile(file) {
   const title = titleFromFilename(name);
 
   if (ext === 'docx') return { title, ...(await importDocx(file)) };
+  if (ext === 'odt') {
+    try {
+      return { title, ...(await importOdt(file)) };
+    } catch (err) {
+      throw new ImportError(err.message);
+    }
+  }
+  if (ext === 'rtf') {
+    try {
+      return { title, ...(await importRtf(file)) };
+    } catch (err) {
+      throw new ImportError(err.message);
+    }
+  }
   if (ext === 'doc') throw new ImportError('Old .doc files are not supported. Save the file as .docx in Word or LibreOffice and import that.');
   if (ext === 'md' || ext === 'markdown' || file.type === 'text/markdown') {
     return { title, html: (await markdownToHtml(await file.text())) || '<p></p>', warnings: [] };
@@ -106,5 +122,5 @@ export async function importFile(file) {
   if (ext === 'txt' || file.type === 'text/plain' || !ext) {
     return { title, html: textToHtml(await file.text()), warnings: [] };
   }
-  throw new ImportError(`".${ext}" files are not supported. Import .docx, .txt, .md or .html files.`);
+  throw new ImportError(`".${ext}" files are not supported. Import .docx, .odt, .rtf, .txt, .md or .html files.`);
 }

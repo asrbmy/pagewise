@@ -12,9 +12,9 @@
  * vector text, use File -> Print and choose "Save as PDF".
  */
 import { sanitizeHtml } from './sanitize.js';
-import { normalizeLayout } from '../editor/layout.js';
+import { normalizeLayout, pageGeometry } from '../editor/layout.js';
 import { documentCss } from './docStyles.js';
-import { PAGE_SIZES, PAGE_MARGIN } from '../editor/constants.js';
+import { PAGE_MARGIN } from '../editor/constants.js';
 
 const MARGIN_PT = 72;
 const SCALE = 2;
@@ -152,11 +152,11 @@ async function renderBatches(host, nodes, html2canvas, widthPx) {
   return canvases;
 }
 
-const UNICODE_FONT = 'DejaVuSans';
+export const UNICODE_FONT = 'DejaVuSans';
 let fontBinary = null;
 
 /** Fetch the bundled font once (a ~750 KB file served with the app, cached for offline use). */
-async function loadUnicodeFont() {
+export async function loadUnicodeFont() {
   if (!fontBinary) {
     const url = `${import.meta.env.BASE_URL}fonts/DejaVuSans.ttf`;
     const res = await fetch(url);
@@ -218,9 +218,9 @@ export function stampPageFurniture(pdf, layout) {
  */
 export async function buildPdf({ title, html, pageSize = 'letter', layout }) {
   const [{ jsPDF }, { default: html2canvas }] = await Promise.all([import('jspdf'), import('html2canvas')]);
-  const page = PAGE_SIZES[pageSize] || PAGE_SIZES.letter;
+  const page = pageGeometry(pageSize, layout);
   const contentPx = page.width - PAGE_MARGIN * 2;
-  const pdf = new jsPDF({ unit: 'pt', format: pageSize === 'a4' ? 'a4' : 'letter', compress: true });
+  const pdf = new jsPDF({ unit: 'pt', format: pageSize === 'a4' ? 'a4' : 'letter', orientation: page.landscape ? 'landscape' : 'portrait', compress: true });
   pdf.setProperties({ title: title || 'Untitled document', creator: 'Pagewise' });
   const pageW = pdf.internal.pageSize.getWidth();
   const pageH = pdf.internal.pageSize.getHeight();
@@ -230,6 +230,7 @@ export async function buildPdf({ title, html, pageSize = 'letter', layout }) {
   const safe = sanitizeHtml(html);
   const sections = splitAtPageBreaks(safe);
   const warnings = [];
+  if (page.columns > 1) warnings.push('Columns are not laid out in PDF export; the text appears in a single column. Word, ODT, RTF, web page and Print keep the columns.');
   if (/<img[^>]+src="https?:/i.test(safe)) warnings.push('Images linked from the web may be missing from the PDF (browsers block reading them). Uploaded images are included.');
 
   let unicode = false;
@@ -252,7 +253,7 @@ export async function buildPdf({ title, html, pageSize = 'letter', layout }) {
   // Rendered behind the app (z-index -1) rather than off-screen: html2canvas captures blank output
   // for elements positioned outside the viewport.
   host.style.cssText = `position:fixed;left:0;top:0;width:${contentPx}px;background:#fff;z-index:-1;pointer-events:none;`;
-  host.innerHTML = `<style>${documentCss(pageSize)} .doc{padding:0!important;max-width:none!important;margin:0!important}</style><div class="doc"></div>`;
+  host.innerHTML = `<style>${documentCss(pageSize, { ...normalizeLayout(layout), columns: 1 })} .doc{padding:0!important;max-width:none!important;margin:0!important}</style><div class="doc"></div>`;
   document.body.appendChild(host);
 
   let y = MARGIN_PT;

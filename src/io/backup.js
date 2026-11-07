@@ -6,6 +6,7 @@
 import { sanitizeHtml } from './sanitize.js';
 import { setPrefs } from '../settings/prefs.js';
 import { normalizeLayout } from '../editor/layout.js';
+import { normalizeStyles } from '../editor/styles.js';
 import { normalizeComments } from '../editor/comments.js';
 import { downloadBlob } from './export.js';
 import { isValidBlob } from '../storage/crypto.js';
@@ -15,21 +16,24 @@ export const BACKUP_FORMAT = 'pagewise-backup';
 export const BACKUP_VERSION = 1;
 export const MAX_BACKUP_BYTES = 500 * 1024 * 1024;
 export const MAX_BACKUP_DOCS = 5000;
+const MAX_BACKUP_VERSIONS = 50000;
+const MAX_VERSIONS_PER_DOC = 120;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/;
 
-export function buildBackup(docs, folders = []) {
+export function buildBackup(docs, folders = [], versions = []) {
   return {
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
     folders: folders.map(({ id, name }) => ({ id, name })),
-    documents: docs.map(({ id, title, html, pageSize, layout, folderId, comments, locked, crypto, createdAt, updatedAt }) => ({ id, title, html, pageSize, layout, folderId, comments, ...(locked ? { locked: true, crypto } : {}), createdAt, updatedAt })),
+    versions: versions.map(({ docId, title, html, label, createdAt }) => ({ docId, title, html, label, createdAt })),
+    documents: docs.map(({ id, title, html, pageSize, layout, styles, folderId, comments, locked, crypto, createdAt, updatedAt }) => ({ id, title, html, pageSize, layout, styles, folderId, comments, ...(locked ? { locked: true, crypto } : {}), createdAt, updatedAt })),
   };
 }
 
 export async function downloadBackup(store) {
   const docs = await store.exportAll();
-  const backup = buildBackup(docs, await store.listFolders());
+  const backup = buildBackup(docs, await store.listFolders(), await store.exportVersions());
   const stamp = new Date().toISOString().slice(0, 10);
   downloadBlob(new Blob([JSON.stringify(backup)], { type: 'application/json' }), `pagewise-backup-${stamp}.json`);
   setPrefs({ lastBackupAt: Date.now() });
@@ -83,6 +87,7 @@ export function parseBackupFull(text) {
         title: typeof d.title === 'string' && d.title.trim() ? d.title.trim().slice(0, 200) : 'Untitled document',
         pageSize: d.pageSize === 'a4' ? 'a4' : 'letter',
         layout: normalizeLayout(d.layout),
+        styles: normalizeStyles(d.styles),
         folderId: typeof d.folderId === 'string' && folderIds.has(d.folderId) ? d.folderId : null,
         createdAt: Number.isFinite(d.createdAt) && d.createdAt > 0 ? d.createdAt : Date.now(),
         updatedAt: Number.isFinite(d.updatedAt) && d.updatedAt > 0 ? d.updatedAt : Date.now(),
@@ -105,6 +110,7 @@ export function parseBackupFull(text) {
         charCount: countCharacters(textContent),
         pageSize: d.pageSize === 'a4' ? 'a4' : 'letter',
         layout: normalizeLayout(d.layout),
+        styles: normalizeStyles(d.styles),
         comments: normalizeComments(d.comments),
         folderId: typeof d.folderId === 'string' && folderIds.has(d.folderId) ? d.folderId : null,
         createdAt: Number.isFinite(d.createdAt) && d.createdAt > 0 ? d.createdAt : now,
@@ -112,12 +118,31 @@ export function parseBackupFull(text) {
       };
     })
     .filter(Boolean);
-  return { docs, folders };
+  const have = new Set(docs.map((d) => d.id).filter(Boolean));
+  const perDoc = new Map();
+  const versions = [];
+  for (const v of Array.isArray(data.versions) ? data.versions : []) {
+    if (versions.length >= MAX_BACKUP_VERSIONS) break;
+    if (!v || typeof v.docId !== 'string' || !have.has(v.docId) || typeof v.html !== 'string') continue;
+    const n = perDoc.get(v.docId) || 0;
+    if (n >= MAX_VERSIONS_PER_DOC) continue;
+    perDoc.set(v.docId, n + 1);
+    const html = sanitizeHtml(v.html) || '<p></p>';
+    versions.push({
+      docId: v.docId,
+      title: typeof v.title === 'string' ? v.title.slice(0, 200) : 'Untitled document',
+      html,
+      wordCount: countWords(htmlToPlainText(html)),
+      label: typeof v.label === 'string' ? v.label.trim().slice(0, 80) : '',
+      createdAt: Number.isFinite(v.createdAt) && v.createdAt > 0 ? v.createdAt : Date.now(),
+    });
+  }
+  return { docs, folders, versions };
 }
 
 export async function restoreBackup(file, store) {
   if (file.size > MAX_BACKUP_BYTES) throw new Error('This file is too large to be a Pagewise backup.');
-  const { docs, folders } = parseBackupFull(await file.text());
+  const { docs, folders, versions } = parseBackupFull(await file.text());
   if (!docs.length) throw new Error('The backup file does not contain any documents.');
-  return store.importAll(docs, folders);
+  return store.importAll(docs, folders, versions);
 }

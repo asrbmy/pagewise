@@ -1538,3 +1538,45 @@ kbd {
   gap: 8px;
   overflow-wrap: anywhere;
 }
+
+/* ---- special characters, focus mode ---- */
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.char-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 4px; max-height: 260px; overflow: auto; }
+.char-btn { font-size: 20px; min-height: 40px; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 6px; cursor: pointer; }
+.char-btn:hover { background: var(--surface-hover); }
+body.focus-mode .menubar, body.focus-mode .toolbar-wrap, body.focus-mode .table-tools, body.focus-mode .status-bar { display: none; }
+.focus-exit { position: fixed; top: 10px; right: 12px; z-index: 50; opacity: .55; }
+.focus-exit:hover, .focus-exit:focus { opacity: 1; }
+body.focus-mode .topbar { display: none; }
+
+/* ---- outline ---- */
+.outline-list { list-style: none; margin: 0; padding: 8px 12px; overflow: auto; }
+.outline-item { display: block; width: 100%; text-align: left; padding: 5px 4px; overflow-wrap: anywhere; }
+.outline-panel { right: auto; left: 0; border-left: 0; border-right: 1px solid var(--border-strong); box-shadow: 4px 0 16px rgba(0,0,0,.12); }
+.pw-prose h1, .pw-prose h2, .pw-prose h3, .pw-prose h4, .pw-prose h5, .pw-prose h6 { scroll-margin-top: 140px; } /* keep jumped-to headings clear of the sticky toolbars */
+
+/* ---- per-page header, footer and page numbers (shown with "page gaps") ---- */
+.page-furniture { position: absolute; left: 0; right: 0; pointer-events: none; font-size: 12px; color: var(--text-muted); user-select: none; }
+.pf-header { position: absolute; top: 36px; left: 0; right: 0; text-align: center; padding: 0 var(--page-pad, 96px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-footer { position: absolute; bottom: 36px; left: 0; right: 0; display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; padding: 0 var(--page-pad, 96px); }
+.pf-left { text-align: left; } .pf-center { text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .pf-right { text-align: right; }
+@media print { .page-furniture { display: none !important; } }
+.pw-prose p[data-caption] { font-size: 0.9em; color: var(--paper-muted, #555); margin-top: 4px; }
+
+/* ---- document styles dialog ---- */
+.styles-grid { display: grid; gap: 10px; max-height: 60vh; overflow: auto; }
+.styles-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px 12px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px 12px; }
+.styles-row legend { font-weight: 600; padding: 0 6px; }
+.styles-row label { display: grid; gap: 4px; font-size: 13px; }
+.color-row { display: flex; align-items: center; gap: 8px; }
+
+/* ---- crop dialog ---- */
+.crop-preview { display: flex; justify-content: center; background: repeating-conic-gradient(var(--border) 0% 25%, transparent 0% 50%) 0 0 / 16px 16px; border-radius: 8px; padding: 8px; margin-bottom: 10px; }
+.crop-preview img { max-width: 100%; max-height: 300px; display: block; }
+.crop-sliders { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 16px; }
+.crop-sliders label { display: grid; gap: 4px; font-size: 13px; }
+
+/* text columns (Page setup) */
+.sheet[data-columns="2"] .ProseMirror { column-count: 2; column-gap: 36px; }
+.sheet[data-columns="3"] .ProseMirror { column-count: 3; column-gap: 36px; }
+.sheet[data-columns] .ProseMirror table, .sheet[data-columns] .ProseMirror img { break-inside: avoid; }

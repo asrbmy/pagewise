@@ -1,0 +1,14 @@
+import { launch, watch, BASE, sleep, clickText, menu, assert } from './lib.mjs';
+const browser = await launch(); const page = await browser.newPage();
+const log = []; watch(page, log); page.on('dialog', (d) => d.accept());
+await page.goto(BASE, { waitUntil: 'networkidle0' });
+await clickText(page, 'button', 'New document'); await page.waitForSelector('.pw-prose'); await page.click('.pw-prose');
+await menu(page, 'Insert', 'Table…'); await page.waitForSelector('.dialog'); await clickText(page, '.dialog button', 'Insert', { exact: false }); await sleep(500);
+await menu(page, 'Insert', 'Caption'); await sleep(300);
+await page.keyboard.type('Sales by region'); await sleep(300);
+const html = await page.$eval('.pw-prose', (e) => e.innerHTML);
+assert(/<\/table>(<\/div>)?<p[^>]*data-caption="table"[^>]*>.*Table 1: .*Sales by region/s.test(html), 'caption placed under the table with typed text');
+await menu(page, 'Insert', 'Caption'); await sleep(300);
+assert((await page.$eval('.pw-prose', (e) => e.innerHTML)).includes('Figure 1: '), 'second caption is a figure caption');
+console.log('LOG', log);
+await browser.close();

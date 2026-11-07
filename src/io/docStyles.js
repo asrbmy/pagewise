@@ -1,16 +1,18 @@
-import { PAGE_SIZES, PAGE_MARGIN } from '../editor/constants.js';
+import { PAGE_MARGIN } from '../editor/constants.js';
+import { pageGeometry, COLUMN_GAP_PX } from '../editor/layout.js';
 
 /**
  * Typographic CSS shared by the HTML export and the PDF renderer, so exported documents
  * look like the editor. (The editor itself uses src/styles/app.css.)
  */
-export function documentCss(pageSize = 'letter') {
-  const page = PAGE_SIZES[pageSize] || PAGE_SIZES.letter;
+export function documentCss(pageSize = 'letter', layout) {
+  const page = pageGeometry(pageSize, layout);
   return `
   :root { color-scheme: light; }
   body { margin: 0; background: #fff; color: #1f2937; }
   .doc { box-sizing: border-box; max-width: ${page.width}px; margin: 0 auto; padding: ${PAGE_MARGIN}px;
     font-family: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 11pt; line-height: 1.5; }
+  ${page.columns > 1 ? `.doc { column-count: ${page.columns}; column-gap: ${COLUMN_GAP_PX}px; } .doc table, .doc img, .doc .toc { break-inside: avoid; }` : ''}
   .doc p { margin: 0 0 8pt; min-height: 1em; }
   .doc h1 { font-size: 26pt; margin: 18pt 0 6pt; line-height: 1.2; }
   .doc h2 { font-size: 20pt; margin: 16pt 0 6pt; line-height: 1.25; }

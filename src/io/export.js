@@ -7,6 +7,7 @@ import { htmlToPlainText } from '../storage/text.js';
 import { sanitizeHtml } from './sanitize.js';
 import { prepareForExport } from './prepare.js';
 import { normalizeLayout, pageMarginRules } from '../editor/layout.js';
+import { applyStylesToHtml } from '../editor/styles.js';
 import { documentCss } from './docStyles.js';
 
 export function safeFilename(title, ext) {
@@ -72,7 +73,7 @@ export function buildStandaloneHtml({ title, html, pageSize, layout }) {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: https:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>${esc(title || 'Untitled document')}</title>
-<style>${documentCss(pageSize)}${pageMarginRules(l) ? ` @page { ${pageMarginRules(l)} }` : ''}${l.header || l.footer ? ' .doc-furniture{font:9pt sans-serif;color:#555;text-align:center;margin:0 auto;max-width:816px} @media print{.doc-furniture{display:none}}' : ''}</style>
+<style>${documentCss(pageSize, l)}${pageMarginRules(l) ? ` @page { ${pageMarginRules(l)} }` : ''}${l.header || l.footer ? ' .doc-furniture{font:9pt sans-serif;color:#555;text-align:center;margin:0 auto;max-width:816px} @media print{.doc-furniture{display:none}}' : ''}</style>
 </head>
 <body>
 ${l.header ? `<div class="doc-furniture">${esc(l.header)}</div>\n` : ''}<main class="doc">
@@ -193,12 +194,26 @@ export async function exportOdt({ title, html, pageSize, layout }) {
   return { blob, filename: safeFilename(title, 'odt'), warnings };
 }
 
+export async function exportTextPdf({ title, html, pageSize, layout }) {
+  const { buildTextPdf } = await import('./pdfText.js');
+  const { blob, warnings } = await buildTextPdf({ title, html, pageSize, layout });
+  return { blob, filename: safeFilename(title, 'pdf'), warnings };
+}
+
+export async function exportEpub({ title, html }) {
+  const { buildEpub } = await import('./epub.js');
+  const { blob, warnings } = await buildEpub(html, { title });
+  return { blob, filename: safeFilename(title, 'epub'), warnings };
+}
+
 export const EXPORTERS = {
   docx: { label: 'Microsoft Word (.docx)', run: exportDocx },
   pdf: { label: 'PDF document (.pdf)', run: exportPdf },
   html: { label: 'Web page (.html)', run: exportHtml },
   odt: { label: 'OpenDocument Text (.odt)', run: exportOdt },
   rtf: { label: 'Rich Text Format (.rtf)', run: exportRtf },
+  epub: { label: 'E-book (.epub)', run: exportEpub },
+  pdftext: { label: 'PDF, text only (.pdf, small)', run: exportTextPdf },
   md: { label: 'Markdown (.md)', run: exportMarkdown },
   txt: { label: 'Plain text (.txt)', run: exportTxt },
 };
@@ -207,7 +222,7 @@ export const EXPORTERS = {
 export async function exportAndDownload(format, doc) {
   const exporter = EXPORTERS[format];
   if (!exporter) throw new Error(`Unknown export format: ${format}`);
-  const result = await exporter.run({ ...doc, html: prepareForExport(doc.html) });
+  const result = await exporter.run({ ...doc, html: applyStylesToHtml(prepareForExport(doc.html, { keepAnchors: format === 'html' }), doc.styles) });
   downloadBlob(result.blob, result.filename);
   return result;
 }

@@ -1,0 +1,27 @@
+import { launch, watch, BASE, sleep, clickText, menu, assert, OUT } from './lib.mjs';
+import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
+const dl = OUT + '/dl-pdftext';
+fs.rmSync(dl, { recursive: true, force: true }); fs.mkdirSync(dl, { recursive: true });
+const browser = await launch(); const page = await browser.newPage();
+const log = []; watch(page, log); page.on('dialog', (d) => d.accept());
+const cdp = await page.createCDPSession();
+await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: dl });
+await page.goto(BASE, { waitUntil: 'networkidle0' });
+await clickText(page, 'button', 'New document'); await page.waitForSelector('.pw-prose'); await page.click('.pw-prose');
+await page.keyboard.type('# Report title'); await page.keyboard.press('Enter');
+await page.keyboard.type('Latin text with numbers 12345. Ελληνικά και Русский текст.'); await sleep(900);
+await menu(page, 'File', 'PDF, text only');
+let file = null;
+for (let i = 0; i < 40 && !file; i += 1) { await sleep(500); file = fs.readdirSync(dl).find((f) => f.endsWith('.pdf')); }
+assert(!!file, 'text PDF downloaded');
+await sleep(500);
+const path = dl + '/' + file;
+const text = execFileSync('pdftotext', [path, '-']).toString();
+const info = execFileSync('pdfinfo', [path]).toString();
+console.log(text.trim().slice(0, 200)); console.log(fs.statSync(path).size, 'bytes');
+assert(/Report title/.test(text) && /Latin text with numbers 12345/.test(text), 'Latin text is real selectable text');
+assert(/Ελληνικά/.test(text) && /Русский/.test(text), 'Greek and Cyrillic are extractable too');
+assert(/Pages:\s+1/.test(info), 'one page');
+console.log('LOG', log);
+await browser.close();

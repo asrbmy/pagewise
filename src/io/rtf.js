@@ -69,7 +69,7 @@ export function buildRtf(html, { pageSize = 'letter', layout, title = '' } = {})
   };
 
   const paragraph = (b, { inCell = false } = {}) => {
-    let p = '\\pard';
+    let p = b.rtl ? '\\pard\\rtlpar' : '\\pard';
     if (b.align) p += { center: '\\qc', right: '\\qr', justify: '\\qj' }[b.align];
     let left = (b.indent || 0) * 720;
     if (b.quote) {
@@ -132,9 +132,11 @@ export function buildRtf(html, { pageSize = 'letter', layout, title = '' } = {})
     furniture.push(`${f}}`);
   }
 
-  const size = PAGE[pageSize] || PAGE.letter;
+  const nl = normalizeLayout(layout);
+  const base = PAGE[pageSize] || PAGE.letter;
+  const size = nl.orientation === 'landscape' ? { w: base.h, h: base.w } : base;
   const fontTbl = `{\\fonttbl${fonts.map((f, i) => `{\\f${i}\\fnil\\fcharset0 ${f};}`).join('')}}`;
   const colorTbl = `{\\colortbl ;${colors.map((c) => `\\red${parseInt(c.slice(0, 2), 16)}\\green${parseInt(c.slice(2, 4), 16)}\\blue${parseInt(c.slice(4, 6), 16)};`).join('')}}`;
-  const rtf = `{\\rtf1\\ansi\\ansicpg1252\\deff0\\uc1\n${fontTbl}\n${colorTbl}\n{\\info{\\title ${rtfEscape(title || 'Document')}}}\n\\paperw${size.w}\\paperh${size.h}\\margl1440\\margr1440\\margt1440\\margb1440\n${furniture.join('')}\\f0\\fs22\n${body}}`;
+  const rtf = `{\\rtf1\\ansi\\ansicpg1252\\deff0\\uc1\n${fontTbl}\n${colorTbl}\n{\\info{\\title ${rtfEscape(title || 'Document')}}}\n\\paperw${size.w}\\paperh${size.h}${nl.orientation === 'landscape' ? '\\landscape' : ''}${nl.columns > 1 ? `\\cols${nl.columns}\\colsx540` : ''}\\margl1440\\margr1440\\margt1440\\margb1440\n${furniture.join('')}\\f0\\fs22\n${body}}`;
   return { rtf, warnings: [...warn] };
 }

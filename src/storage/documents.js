@@ -12,6 +12,7 @@
 import { deriveKey, newSalt, encryptJson, decryptJson, fromB64, cryptoAvailable, DEFAULT_ITERATIONS, MIN_PASSWORD } from './crypto.js';
 import { openDB } from 'idb';
 import { normalizeLayout } from '../editor/layout.js';
+import { normalizeStyles } from '../editor/styles.js';
 import { stripComments } from '../io/prepare.js';
 import { normalizeComments } from '../editor/comments.js';
 import { htmlToPlainText, countWords, countCharacters, makeSnippet } from './text.js';
@@ -176,7 +177,7 @@ export class DocumentStore {
   }
 
   /** Create and persist a new document. */
-  async createDocument({ title = 'Untitled document', html = EMPTY_HTML, pageSize = 'letter', layout, folderId = null } = {}) {
+  async createDocument({ title = 'Untitled document', html = EMPTY_HTML, pageSize = 'letter', layout, styles, folderId = null } = {}) {
     const now = Date.now();
     const text = htmlToPlainText(html);
     const doc = {
@@ -188,6 +189,7 @@ export class DocumentStore {
       charCount: countCharacters(text),
       pageSize,
       layout: normalizeLayout(layout),
+      styles: normalizeStyles(styles),
       folderId,
       createdAt: now,
       updatedAt: now,
@@ -292,6 +294,7 @@ export class DocumentStore {
       next.charCount = countCharacters(next.text);
     }
     if ('layout' in changes) next.layout = normalizeLayout(changes.layout);
+    if ('styles' in changes) next.styles = normalizeStyles(changes.styles);
     if ('comments' in changes) next.comments = normalizeComments(changes.comments);
     if (typeof changes.title === 'string') next.title = changes.title.trim() || 'Untitled document';
     next.updatedAt = changes.updatedAt || Date.now();
@@ -315,6 +318,7 @@ export class DocumentStore {
       next.crypto = await encryptJson(entry.key, payload, entry.salt, entry.iterations);
     }
     if ('layout' in changes) next.layout = normalizeLayout(changes.layout);
+    if ('styles' in changes) next.styles = normalizeStyles(changes.styles);
     if (typeof changes.title === 'string') next.title = changes.title.trim() || 'Untitled document';
     if (typeof changes.html === 'string') {
       const text = htmlToPlainText(changes.html);
@@ -335,12 +339,12 @@ export class DocumentStore {
     if (!src) throw new StorageError('The document to copy was not found.', 'missing');
     if (src.locked) {
       // The copy keeps the same password; the ciphertext is copied as is.
-      const copy = await this.createDocument({ title: `Copy of ${src.title}`, pageSize: src.pageSize, layout: src.layout, folderId: src.folderId });
+      const copy = await this.createDocument({ title: `Copy of ${src.title}`, pageSize: src.pageSize, layout: src.layout, styles: src.styles, folderId: src.folderId });
       const next = { ...copy, locked: true, crypto: src.crypto, wordCount: src.wordCount, charCount: src.charCount };
       await this._put(next);
       return next;
     }
-    return this.createDocument({ title: `Copy of ${src.title}`, html: stripComments(src.html), pageSize: src.pageSize, layout: src.layout, folderId: src.folderId });
+    return this.createDocument({ title: `Copy of ${src.title}`, html: stripComments(src.html), pageSize: src.pageSize, layout: src.layout, styles: src.styles, folderId: src.folderId });
   }
 
   async deleteDocument(id) {
@@ -421,6 +425,17 @@ export class DocumentStore {
     try {
       if (!this._db) return [...this.memoryVersions.values()].filter((v) => v.docId === docId);
       return await this._db.getAllFromIndex(VERSIONS, 'docId', docId);
+    } catch (err) {
+      throw classify(err);
+    }
+  }
+
+  /** All stored snapshots (locked documents never have any). */
+  async exportVersions() {
+    await this.init();
+    try {
+      const all = this._db ? await this._db.getAll(VERSIONS) : [...this.memoryVersions.values()];
+      return all;
     } catch (err) {
       throw classify(err);
     }
@@ -540,7 +555,7 @@ export class DocumentStore {
    * copies so nothing is ever overwritten.
    * @returns {Promise<{added:number, copied:number}>}
    */
-  async importAll(docs, folders = []) {
+  async importAll(docs, folders = [], versions = []) {
     let added = 0;
     let copied = 0;
     // Folders are matched by name so a restore never creates duplicates of an existing folder.
@@ -555,6 +570,7 @@ export class DocumentStore {
         idMap.set(f.id, made.id);
       }
     }
+    const idsMap = new Map();
     for (const d of docs) {
       const exists = await this._get(d.id);
       const doc = { ...d, folderId: d.folderId && idMap.has(d.folderId) ? idMap.get(d.folderId) : null };
@@ -567,6 +583,12 @@ export class DocumentStore {
       }
       if (!exists) added += 1;
       await this._put(doc);
+      if (d.id) idsMap.set(d.id, doc.id);
+    }
+    for (const v of versions) {
+      const docId = idsMap.get(v.docId);
+      if (!docId || docs.find((d) => d.id === v.docId)?.locked) continue;
+      await this._putVersion({ ...v, vid: newId(), docId }); // eslint-disable-line no-await-in-loop
     }
     return { added, copied };
   }

@@ -260,8 +260,8 @@ describe('table of contents in exports', () => {
 describe('header, footer and page numbers', () => {
   it('normalises untrusted layout values', async () => {
     const { normalizeLayout, pageMarginRules, cssString } = await import('../src/editor/layout.js');
-    expect(normalizeLayout(null)).toEqual({ header: '', footer: '', pageNumbers: 'none' });
-    expect(normalizeLayout({ header: 'a\nb', footer: 'x'.repeat(500), pageNumbers: 'bogus' })).toEqual({ header: 'a b', footer: 'x'.repeat(150), pageNumbers: 'none' });
+    expect(normalizeLayout(null)).toEqual({ header: '', footer: '', pageNumbers: 'none', orientation: 'portrait', columns: 1 });
+    expect(normalizeLayout({ header: 'a\nb', footer: 'x'.repeat(500), pageNumbers: 'bogus' })).toEqual({ header: 'a b', footer: 'x'.repeat(150), pageNumbers: 'none', orientation: 'portrait', columns: 1 });
     expect(cssString('a"b\\c</style>')).not.toContain('</style>');
     const rules = pageMarginRules({ header: 'H', footer: 'F', pageNumbers: 'right' });
     expect(rules).toContain('@top-center');

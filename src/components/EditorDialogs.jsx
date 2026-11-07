@@ -1,3 +1,4 @@
+import { collectBookmarks } from '../editor/extensions/bookmark.js';
 import { useEffect, useId, useRef, useState } from 'react';
 import { normalizeLayout, NUMBER_POSITIONS } from '../editor/layout.js';
 import { Dialog } from './Dialog.jsx';
@@ -27,6 +28,7 @@ function atRange(editor, range) {
 export function normalizeUrl(input) {
   const raw = (input || '').trim();
   if (!raw) return null;
+  if (/^#bm-[a-z0-9][a-z0-9-]{0,39}$/.test(raw)) return raw;
   const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(raw);
   if (scheme) return ['http', 'https', 'mailto', 'tel'].includes(scheme[1].toLowerCase()) ? raw : null;
   if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) return `mailto:${raw}`;
@@ -41,6 +43,7 @@ export function LinkDialog({ editor, range, href: existing = '', onClose }) {
   const [error, setError] = useState('');
   const urlId = useId();
   const textId = useId();
+  const bookmarks = collectBookmarks(editor.state.doc);
 
   const submit = (e) => {
     e.preventDefault();
@@ -91,6 +94,21 @@ export function LinkDialog({ editor, range, href: existing = '', onClose }) {
           aria-describedby={error ? `${urlId}-err` : undefined}
           data-autofocus
         />
+        {bookmarks.length > 0 && (
+          <>
+            <label className="field-label" htmlFor={`${urlId}-bm`}>
+              Or link to a bookmark in this document
+            </label>
+            <select id={`${urlId}-bm`} className="input" value="" onChange={(e) => { if (e.target.value) { setUrl(e.target.value); setError(''); } }}>
+              <option value="">Choose a bookmark…</option>
+              {bookmarks.map((b) => (
+                <option key={b.name} value={`#bm-${b.name}`}>
+                  {b.name}{b.text ? ` — ${b.text}` : ''}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
         {error && (
           <p className="field-error" id={`${urlId}-err`} role="alert">
             {error}
@@ -260,6 +278,8 @@ export function FindReplacePanel({ editor, onClose, initialTerm = '' }) {
   const [find, setFind] = useState(initialTerm);
   const [replace, setReplace] = useState('');
   const [caseSensitive, setCaseSensitive] = useState(false);
+  const [wholeWord, setWholeWord] = useState(false);
+  const [regex, setRegex] = useState(false);
   const findRef = useRef(null);
   const findId = useId();
   const replId = useId();
@@ -270,8 +290,8 @@ export function FindReplacePanel({ editor, onClose, initialTerm = '' }) {
   }, []);
 
   useEffect(() => {
-    editor.commands.setSearch({ term: find, caseSensitive });
-  }, [find, caseSensitive, editor]);
+    editor.commands.setSearch({ term: find, caseSensitive, wholeWord, regex });
+  }, [find, caseSensitive, wholeWord, regex, editor]);
 
   useEffect(
     () => () => {
@@ -282,7 +302,7 @@ export function FindReplacePanel({ editor, onClose, initialTerm = '' }) {
 
   const st = getSearchState(editor);
   const count = st.matches.length;
-  const label = !find ? '' : count ? `${st.index + 1} of ${count}` : 'No results';
+  const label = !find ? '' : st.invalid ? 'Invalid pattern' : count ? `${st.index + 1} of ${count}` : 'No results';
 
   const step = (dir) => editor.commands.stepSearch(dir);
 
@@ -345,9 +365,17 @@ export function FindReplacePanel({ editor, onClose, initialTerm = '' }) {
           Replace all
         </button>
       </div>
-      <label className="check small">
-        <input type="checkbox" checked={caseSensitive} onChange={(e) => setCaseSensitive(e.target.checked)} /> Match case
-      </label>
+      <div className="find-row find-options">
+        <label className="check small">
+          <input type="checkbox" checked={caseSensitive} onChange={(e) => setCaseSensitive(e.target.checked)} /> Match case
+        </label>
+        <label className="check small">
+          <input type="checkbox" checked={wholeWord} onChange={(e) => setWholeWord(e.target.checked)} /> Whole word
+        </label>
+        <label className="check small">
+          <input type="checkbox" checked={regex} onChange={(e) => setRegex(e.target.checked)} /> Regular expression
+        </label>
+      </div>
     </div>
   );
 }
@@ -380,6 +408,21 @@ export function PageSetupDialog({ pageSize, layout, onApply, onClose }) {
             </label>
           ))}
         </fieldset>
+        <fieldset className="radio-group">
+          <legend className="field-label">Orientation</legend>
+          {[['portrait', 'Portrait'], ['landscape', 'Landscape']].map(([id, label]) => (
+            <label key={id} className="check">
+              <input type="radio" name="page-orientation" value={id} checked={lay.orientation === id} onChange={() => setLay({ ...lay, orientation: id })} /> {label}
+            </label>
+          ))}
+        </fieldset>
+        <label className="field-label" htmlFor="pw-columns">Text columns</label>
+        <select id="pw-columns" className="input" value={lay.columns} onChange={(e) => setLay({ ...lay, columns: Number(e.target.value) })}>
+          <option value={1}>1 column</option>
+          <option value={2}>2 columns</option>
+          <option value={3}>3 columns</option>
+        </select>
+        {lay.columns > 1 && <p className="hint">Columns show in the editor (without page gaps), in Print, Word, ODT, RTF and web-page export. PDF export uses a single column.</p>}
         <label className="field-label" htmlFor="pw-header">Header (top of every page)</label>
         <input id="pw-header" className="input" type="text" value={lay.header} maxLength={150} onChange={(e) => setLay({ ...lay, header: e.target.value })} />
         <label className="field-label" htmlFor="pw-footer">Footer (bottom of every page)</label>

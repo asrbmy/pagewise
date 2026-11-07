@@ -9,6 +9,7 @@ const KEY = 'pagewise:prefs';
 export const DEFAULT_PREFS = {
   theme: 'system', // 'system' | 'light' | 'dark'
   language: 'auto', // 'auto' follows the browser; otherwise a code from src/i18n
+  autoLockMinutes: 15, // locked documents close after this many idle minutes (0 = never)
   spellcheck: true,
   pageSize: 'letter', // default for new documents: 'letter' | 'a4'
   sort: 'modified-desc',

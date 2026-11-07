@@ -10,12 +10,42 @@ export const findReplaceKey = new PluginKey('pagewiseFindReplace');
  * is still found.
  * @returns {{from:number,to:number}[]}
  */
-export function findMatches(doc, term, caseSensitive = false) {
+const MAX_MATCHES = 5000;
+
+/** Build a RegExp for the search options, or null when the pattern is invalid. */
+export function buildPattern(term, opts) {
+  const { caseSensitive = false, wholeWord = false, regex = false } = opts;
+  if (!term) return null;
+  let src = regex ? term : term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (wholeWord) src = `(?<![\\p{L}\\p{N}_])(?:${src})(?![\\p{L}\\p{N}_])`;
+  try {
+    return new RegExp(src, `gu${caseSensitive ? '' : 'i'}`);
+  } catch {
+    return null;
+  }
+}
+
+/** The replacement text for one match (regex mode supports $1, $&). */
+export function expandReplacement(match, replacement, term, opts) {
+  if (!opts.regex) return replacement;
+  const re = buildPattern(term, { ...opts, wholeWord: false });
+  return re ? match.text.replace(re, replacement) : replacement;
+}
+
+/**
+ * Find every occurrence of `term` in a ProseMirror document. Matching is done per text block
+ * on the concatenated text, so a match that spans formatting changes (e.g. "he<b>llo</b>")
+ * is still found. `opts` may be a boolean (caseSensitive) or {caseSensitive, wholeWord, regex}.
+ * @returns {{from:number,to:number,text:string}[]}
+ */
+export function findMatches(doc, term, opts = false) {
+  const o = typeof opts === 'boolean' ? { caseSensitive: opts } : opts;
   const results = [];
-  if (!term) return results;
-  const needle = caseSensitive ? term : term.toLowerCase();
+  const re = buildPattern(term, o);
+  if (!re) return results;
 
   doc.descendants((node, pos) => {
+    if (results.length >= MAX_MATCHES) return false;
     if (!node.isTextblock) return true;
     let text = '';
     const map = []; // map[i] = document position of character i
@@ -29,12 +59,17 @@ export function findMatches(doc, term, caseSensitive = false) {
       }
       return false;
     });
-    const hay = caseSensitive ? text : text.toLowerCase();
-    if (hay.length !== text.length) return false; // exotic case-folding: skip rather than mis-map
-    let i = hay.indexOf(needle);
-    while (i !== -1) {
-      results.push({ from: map[i], to: map[i + needle.length - 1] + 1 });
-      i = hay.indexOf(needle, i + needle.length);
+    if (text.length > 100000) return false; // keep pathological patterns bounded
+    re.lastIndex = 0;
+    let m = re.exec(text);
+    while (m && results.length < MAX_MATCHES) {
+      if (m[0].length === 0) {
+        re.lastIndex += 1; // skip empty matches
+      } else {
+        // Indices are UTF-16 units, same as `text` and `map`.
+        results.push({ from: map[m.index], to: map[m.index + m[0].length - 1] + 1, text: m[0] });
+      }
+      m = re.exec(text);
     }
     return false;
   });
@@ -51,7 +86,7 @@ function buildDecorations(doc, state) {
   );
 }
 
-const EMPTY = { term: '', caseSensitive: false, matches: [], index: -1, decorations: DecorationSet.empty };
+const EMPTY = { term: '', caseSensitive: false, wholeWord: false, regex: false, invalid: false, matches: [], index: -1, decorations: DecorationSet.empty };
 
 export const FindReplace = Extension.create({
   name: 'findReplace',
@@ -64,13 +99,15 @@ export const FindReplace = Extension.create({
           init: () => EMPTY,
           apply(tr, prev, _old, newState) {
             const meta = tr.getMeta(findReplaceKey);
-            let { term, caseSensitive, index } = prev;
+            let { term, caseSensitive, wholeWord, regex, index } = prev;
             let recompute = tr.docChanged;
             if (meta) {
               if (meta.clear) return EMPTY;
               if (meta.term !== undefined) {
                 term = meta.term;
                 caseSensitive = !!meta.caseSensitive;
+                wholeWord = !!meta.wholeWord;
+                regex = !!meta.regex;
                 recompute = true;
                 index = -2; // pick nearest to selection below
               }
@@ -78,7 +115,9 @@ export const FindReplace = Extension.create({
               if (meta.index !== undefined) index = meta.index;
             }
             if (!recompute && !meta) return { ...prev, decorations: prev.decorations.map(tr.mapping, tr.doc) };
-            const matches = findMatches(newState.doc, term, caseSensitive);
+            const opts = { caseSensitive, wholeWord, regex };
+            const matches = findMatches(newState.doc, term, opts);
+            const invalid = !!term && !buildPattern(term, opts);
             if (!matches.length) index = -1;
             else if (index === -2) {
               const head = newState.selection.from;
@@ -86,7 +125,7 @@ export const FindReplace = Extension.create({
               index = nearest === -1 ? 0 : nearest;
             } else if (index >= matches.length) index = 0;
             else if (index < 0) index = matches.length - 1;
-            const next = { term, caseSensitive, matches, index };
+            const next = { term, caseSensitive, wholeWord, regex, invalid, matches, index };
             return { ...next, decorations: buildDecorations(newState.doc, next) };
           },
         },
@@ -108,9 +147,9 @@ export const FindReplace = Extension.create({
     return {
       /** Start / update a search. Highlights all matches. */
       setSearch:
-        ({ term, caseSensitive = false }) =>
+        ({ term, caseSensitive = false, wholeWord = false, regex = false }) =>
         ({ tr, dispatch }) => {
-          if (dispatch) dispatch(tr.setMeta(findReplaceKey, { term, caseSensitive }).setMeta('addToHistory', false));
+          if (dispatch) dispatch(tr.setMeta(findReplaceKey, { term, caseSensitive, wholeWord, regex }).setMeta('addToHistory', false));
           return true;
         },
 
@@ -147,7 +186,7 @@ export const FindReplace = Extension.create({
           if (cur.index < 0 || !cur.matches[cur.index]) return false;
           const m = cur.matches[cur.index];
           if (dispatch) {
-            tr.insertText(replacement, m.from, m.to);
+            tr.insertText(expandReplacement(m, replacement, cur.term, cur), m.from, m.to);
             tr.setMeta(findReplaceKey, { index: cur.index });
             dispatch(tr);
           }
@@ -163,7 +202,7 @@ export const FindReplace = Extension.create({
           if (dispatch) {
             for (let i = cur.matches.length - 1; i >= 0; i -= 1) {
               const m = cur.matches[i];
-              tr.insertText(replacement, m.from, m.to);
+              tr.insertText(expandReplacement(m, replacement, cur.term, cur), m.from, m.to);
             }
             dispatch(tr);
           }

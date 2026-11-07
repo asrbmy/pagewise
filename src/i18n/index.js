@@ -6,11 +6,17 @@ import { useCallback } from 'react';
 import { usePrefs, getPrefs } from '../settings/prefs.js';
 import es from './es.js';
 import fr from './fr.js';
+import de from './de.js';
+import pt from './pt.js';
+import hi from './hi.js';
 
 export const LANGUAGES = [
   { code: 'en', name: 'English', dict: {} },
   { code: 'es', name: 'Español', dict: es },
   { code: 'fr', name: 'Français', dict: fr },
+  { code: 'de', name: 'Deutsch', dict: de },
+  { code: 'pt', name: 'Português', dict: pt },
+  { code: 'hi', name: 'हिन्दी', dict: hi },
 ];
 
 /** Resolve the preference ('auto' follows the browser) to a supported language code. */

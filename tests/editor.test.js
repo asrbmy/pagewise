@@ -182,8 +182,8 @@ describe('table of contents', () => {
     let html = editor.getHTML();
     expect(html).toContain('data-type="toc"');
     expect(html).toContain('Table of contents');
-    expect(html).toMatch(/<p[^>]*>Intro<\/p>/);
-    expect(html).toMatch(/data-indent="1"[^>]*>Details<\/p>/);
+    expect(html).toMatch(/<p[^>]*><a [^>]*href="#h-1"[^>]*>Intro<\/a><\/p>/);
+    expect(html).toMatch(/data-indent="1"[^>]*><a [^>]*>Details<\/a><\/p>/);
     expect(html).not.toMatch(/>Skipped level<\/p>.*data-type="toc"/s);
 
     const again = new Editor({ extensions: buildExtensions(), content: html });
@@ -194,7 +194,7 @@ describe('table of contents', () => {
     editor.commands.insertContent(' renamed');
     editor.commands.updateTableOfContents();
     html = editor.getHTML();
-    expect(html).toMatch(/<p[^>]*>Intro renamed<\/p>/);
+    expect(html).toMatch(/<a [^>]*>Intro renamed<\/a><\/p>/);
     expect((html.match(/data-type="toc"/g) || []).length).toBe(1);
   });
 
@@ -322,5 +322,91 @@ describe('comments', () => {
   it('ignores marks with unsafe ids when loading', () => {
     make('<p><span data-comment-id="x&quot; onmouseover=&quot;1">text</span></p>');
     expect(editor.getHTML()).not.toContain('onmouseover');
+  });
+});
+
+describe('find options', () => {
+  const doc = () => {
+    const ed = new Editor({ extensions: buildExtensions(), content: '<p>cat concat Cat cat.</p><p>dog1 dog22</p>' });
+    return ed.state.doc;
+  };
+  it('whole word skips matches inside words', async () => {
+    const { findMatches } = await import('../src/editor/extensions/findReplace.js');
+    expect(findMatches(doc(), 'cat', { wholeWord: true }).length).toBe(3);
+    expect(findMatches(doc(), 'cat', { wholeWord: true, caseSensitive: true }).length).toBe(2);
+    expect(findMatches(doc(), 'cat').length).toBe(4);
+  });
+  it('regex works, expands groups and rejects bad patterns', async () => {
+    const { findMatches, expandReplacement, buildPattern } = await import('../src/editor/extensions/findReplace.js');
+    const m = findMatches(doc(), 'dog(\\d+)', { regex: true });
+    expect(m.map((x) => x.text)).toEqual(['dog1', 'dog22']);
+    expect(expandReplacement(m[1], 'pet-$1', 'dog(\\d+)', { regex: true })).toBe('pet-22');
+    expect(buildPattern('(', { regex: true })).toBeNull();
+    expect(findMatches(doc(), '(', { regex: true })).toEqual([]);
+    expect(findMatches(doc(), 'a*', { regex: true }).every((x) => x.text.length > 0)).toBe(true);
+  });
+  it('treats plain text literally', async () => {
+    const { findMatches } = await import('../src/editor/extensions/findReplace.js');
+    expect(findMatches(doc(), '.', {}).length).toBe(1);
+  });
+});
+
+describe('text direction', () => {
+  it('round-trips dir=rtl, rejects junk, and exports to rtf/odt', async () => {
+    const ed = make('<p dir="rtl">مرحبا</p><p dir="evil">x</p><p>y</p>');
+    expect(ed.getHTML()).toContain('<p dir="rtl">مرحبا</p>');
+    expect(ed.getHTML()).not.toContain('evil');
+    ed.commands.setTextSelection(1);
+    ed.commands.setTextDirection('ltr');
+    expect(ed.getHTML()).toContain('<p dir="ltr">');
+    const { buildRtf } = await import('../src/io/rtf.js');
+    expect(buildRtf('<p dir="rtl">a</p><p>b</p>').rtf).toContain('\\rtlpar');
+    const { buildOdt } = await import('../src/io/odt.js');
+    const JSZip = (await import('jszip')).default;
+    const zip = await JSZip.loadAsync(await (await buildOdt('<p dir="rtl">a</p>')).blob.arrayBuffer());
+    expect(await zip.file('content.xml').async('string')).toContain('rl-tb');
+  });
+
+  it('exports rtl paragraphs to docx as bidi', async () => {
+    const { htmlToDocxBlob } = await import('../src/io/docx.js');
+    const JSZip = (await import('jszip')).default;
+    const { blob } = await htmlToDocxBlob('<p dir="rtl">مرحبا</p><p>x</p>', { title: 'T' });
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    expect(await zip.file('word/document.xml').async('string')).toContain('<w:bidi');
+  });
+});
+
+describe('page orientation and columns', () => {
+  it('normalizes layout and computes geometry', async () => {
+    const { normalizeLayout, pageGeometry } = await import('../src/editor/layout.js');
+    expect(normalizeLayout({ orientation: 'sideways', columns: 9 })).toMatchObject({ orientation: 'portrait', columns: 1 });
+    expect(normalizeLayout({ orientation: 'landscape', columns: 2 })).toMatchObject({ orientation: 'landscape', columns: 2 });
+    const g = pageGeometry('letter', { orientation: 'landscape' });
+    expect([g.width, g.height]).toEqual([1056, 816]);
+    expect(g.css).toBe('letter landscape');
+  });
+  it('docx carries landscape and columns', async () => {
+    const { htmlToDocxBlob } = await import('../src/io/docx.js');
+    const JSZip = (await import('jszip')).default;
+    const { blob } = await htmlToDocxBlob('<p>x</p>', { layout: { orientation: 'landscape', columns: 2 } });
+    const x = await (await JSZip.loadAsync(await blob.arrayBuffer())).file('word/document.xml').async('string');
+    expect(x).toMatch(/<w:pgSz[^>]*w:w="15840"[^>]*w:h="12240"[^>]*w:orient="landscape"|<w:pgSz[^>]*w:orient="landscape"/);
+    expect(x).toMatch(/<w:cols[^>]*w:num="2"/);
+  });
+  it('odt and rtf carry landscape and columns', async () => {
+    const { buildRtf } = await import('../src/io/rtf.js');
+    const { buildOdt } = await import('../src/io/odt.js');
+    const JSZip = (await import('jszip')).default;
+    const layout = { orientation: 'landscape', columns: 3 };
+    const rtf = buildRtf('<p>a</p>', { layout }).rtf;
+    expect(rtf).toContain('\\landscape');
+    expect(rtf).toContain('\\cols3');
+    expect(rtf).toContain('\\paperw15840');
+    const { blob } = await buildOdt('<p>a</p>', { layout });
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const styles = await zip.file('styles.xml').async('string');
+    expect(styles).toContain('fo:column-count="3"');
+    expect(styles).toContain('fo:page-width="11in"');
+    expect(styles).toContain('style:print-orientation="landscape"');
   });
 });

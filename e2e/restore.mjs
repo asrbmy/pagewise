@@ -1,0 +1,33 @@
+import fs from 'node:fs';
+import { launch, watch, BASE, OUT, sleep, clickText, setDownloads, waitForFile, assert } from './lib.mjs';
+const dl = OUT + '/downloads5'; fs.rmSync(dl, { recursive: true, force: true });
+const browser = await launch(); const page = await browser.newPage();
+const log = []; watch(page, log); await setDownloads(page, dl);
+await page.goto(BASE, { waitUntil: 'networkidle0' });
+await clickText(page, 'button', 'New document'); await page.waitForSelector('.pw-prose'); await page.click('.pw-prose');
+await page.keyboard.type('Backup me please'); await sleep(1200);
+await page.goto(BASE, { waitUntil: 'networkidle0' }); await page.waitForSelector('.home-main');
+await page.click('[aria-label="Privacy and storage"]'); await page.waitForSelector('.dialog');
+await clickText(page, 'button', 'Back up all documents', { exact: false });
+const file = await waitForFile(dl, '.json', 20000);
+const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+assert(data.format === 'pagewise-backup' && data.documents.length === 1, 'backup file has the document');
+assert(data.documents[0].layout && data.documents[0].layout.pageNumbers === 'none', 'backup carries layout');
+await page.keyboard.press('Escape');
+// delete the document through its menu
+await page.click('button[aria-label^="Actions for"]'); await sleep(200);
+await clickText(page, '[role^=menuitem]', 'Delete…', { exact: false });
+await page.waitForSelector('.dialog'); await clickText(page, 'button', 'Delete'); await sleep(800);
+assert((await page.$$('.doc-grid > li')).length === 0, 'document deleted');
+// restore from the backup file
+await page.click('[aria-label="Privacy and storage"]'); await page.waitForSelector('.dialog');
+const input = await page.$('.dialog input[type=file]');
+assert(!!input, 'restore file input present');
+await input.uploadFile(file); await sleep(1500);
+await page.keyboard.press('Escape'); await sleep(500);
+const cards = await page.$$eval('.doc-grid > li', (els) => els.map((e) => e.textContent));
+assert(cards.length === 1 && cards[0].includes('Backup me please'), 'document restored: ' + cards.join('|').slice(0, 80));
+await page.click('.doc-grid > li a, .doc-grid > li button'); await page.waitForSelector('.pw-prose');
+assert((await page.$eval('.pw-prose', (e) => e.textContent)).includes('Backup me please'), 'restored document opens with its text');
+console.log('LOG', log);
+await browser.close();
