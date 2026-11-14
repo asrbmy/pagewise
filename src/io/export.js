@@ -222,7 +222,11 @@ export const EXPORTERS = {
 export async function exportAndDownload(format, doc) {
   const exporter = EXPORTERS[format];
   if (!exporter) throw new Error(`Unknown export format: ${format}`);
-  const result = await exporter.run({ ...doc, html: applyStylesToHtml(prepareForExport(doc.html, { keepAnchors: format === 'html' }), doc.styles) });
+  const keepTracked = format === 'html' || format === 'docx';
+  const result = await exporter.run({ ...doc, html: applyStylesToHtml(prepareForExport(doc.html, { keepAnchors: format === 'html', keepTracked }), doc.styles) });
+  if (!keepTracked && /data-change-id/.test(doc.html || '')) {
+    result.warnings = [...(result.warnings || []), 'This document has tracked changes. This format cannot show them, so every change was accepted in the export. Word and web-page export keep them.'];
+  }
   downloadBlob(result.blob, result.filename);
   return result;
 }

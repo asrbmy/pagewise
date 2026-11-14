@@ -1478,6 +1478,8 @@ kbd {
 /* ---------------------------------------------------------------- pagination spacers */
 .pw-prose .page-spacer { display: block; pointer-events: none; user-select: none; margin: 0; padding: 0; }
 @media print { .pw-prose .page-spacer { display: none !important; } }
+.pw-prose tr.page-spacer-row { display: table-row; }
+.pw-prose tr.page-spacer-row td { padding: 0; border: 0 !important; background: none !important; min-width: 0; }
 
 /* ---------------------------------------------------------------- folders */
 .folder-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 14px; }
@@ -1580,3 +1582,13 @@ body.focus-mode .topbar { display: none; }
 .sheet[data-columns="2"] .ProseMirror { column-count: 2; column-gap: 36px; }
 .sheet[data-columns="3"] .ProseMirror { column-count: 3; column-gap: 36px; }
 .sheet[data-columns] .ProseMirror table, .sheet[data-columns] .ProseMirror img { break-inside: avoid; }
+
+/* tracked changes */
+.tc-ins { color: #0d652d; text-decoration: underline; text-decoration-color: #0d652d; background: rgba(13, 101, 45, 0.08); }
+.tc-del { color: #b3261e; text-decoration: line-through; background: rgba(179, 38, 30, 0.08); }
+:root[data-theme="dark"] .pw-prose .tc-ins, :root[data-theme="dark"] .changes-panel .tc-ins { color: #81c995; text-decoration-color: #81c995; }
+:root[data-theme="dark"] .pw-prose .tc-del, :root[data-theme="dark"] .changes-panel .tc-del { color: #f28b82; }
+.pw-prose[data-suggesting="true"] { caret-color: #0d652d; }
+.suggesting-badge { margin-left: 8px; padding: 1px 8px; border-radius: 10px; background: #0d652d; color: #fff; font-size: 12px; }
+.changes-panel .pad { padding: 4px 12px; }
+@media print { .suggesting-badge { display: none; } }

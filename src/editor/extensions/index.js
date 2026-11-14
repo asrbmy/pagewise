@@ -20,6 +20,7 @@ import { Subscript } from '@tiptap/extension-subscript';
 import { Superscript } from '@tiptap/extension-superscript';
 import { FontSize } from './fontSize.js';
 import { ParagraphFormat } from './paragraphFormat.js';
+import { Insertion, Deletion, TrackChanges } from './trackChanges.js';
 import { PageBreak } from './pageBreak.js';
 import { FindReplace } from './findReplace.js';
 import { TableOfContents } from './tableOfContents.js';
@@ -87,6 +88,9 @@ export function buildExtensions({ placeholder = 'Start typing…' } = {}) {
     MathNode,
     Footnote,
     Comment,
+    Insertion,
+    Deletion,
+    TrackChanges,
     FindReplace,
     Pagination,
     Placeholder.configure({ placeholder }),

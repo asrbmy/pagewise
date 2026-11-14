@@ -27,6 +27,8 @@ import {
   WidthType,
   ImageRun,
   ExternalHyperlink,
+  InsertedTextRun,
+  DeletedTextRun,
   PageBreak,
   LevelFormat,
   BorderStyle,
@@ -92,6 +94,7 @@ function createContext(pageSize, layout) {
     page,
     contentWidthPx: Math.floor((page.width - PAGE_MARGIN * 2 - COLUMN_GAP_PX * (page.columns - 1)) / page.columns),
     listInstance: 0,
+    changeId: 0,
   };
 }
 
@@ -150,7 +153,11 @@ function inlineRuns(node, marks, ctx) {
   node.childNodes.forEach((child) => {
     if (child.nodeType === Node.TEXT_NODE) {
       const text = child.nodeValue.replace(/\s*\n\s*/g, ' ');
-      if (text) runs.push(new TextRun(runOptions(marks, text)));
+      if (text && marks.tracked) {
+        const t = marks.tracked;
+        const Run = t.kind === 'del' ? DeletedTextRun : InsertedTextRun;
+        runs.push(new Run({ ...runOptions(marks, text), id: ++ctx.changeId, author: 'Pagewise', date: t.date }));
+      } else if (text) runs.push(new TextRun(runOptions(marks, text)));
       return;
     }
     if (child.nodeType !== Node.ELEMENT_NODE) return;
@@ -172,7 +179,11 @@ function inlineRuns(node, marks, ctx) {
     if (tag === 'STRONG' || tag === 'B') next.bold = true;
     if (tag === 'EM' || tag === 'I') next.italics = true;
     if (tag === 'U') next.underline = true;
-    if (tag === 'S' || tag === 'STRIKE' || tag === 'DEL') next.strike = true;
+    const changeId = child.getAttribute('data-change-id');
+    if ((tag === 'INS' || tag === 'DEL') && changeId) {
+      const ms = Number(child.getAttribute('data-change-time'));
+      next.tracked = { kind: tag === 'DEL' ? 'del' : 'ins', date: new Date(ms > 0 ? ms : Date.now()).toISOString() };
+    } else if (tag === 'S' || tag === 'STRIKE' || tag === 'DEL') next.strike = true;
     if (tag === 'SUB') next.sub = true;
     if (tag === 'SUP') next.sup = true;
     if (tag === 'CODE') next.font = 'Courier New';

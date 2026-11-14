@@ -33,6 +33,8 @@ export function documentCss(pageSize = 'letter', layout) {
   .doc mark { color: inherit; }
   .doc .toc { margin: 8pt 0; padding: 8pt 12pt; border: 1px solid #9ca3af; border-radius: 6px; }
   .doc .toc p { margin: 2pt 0; }
+  .doc ins[data-change-id] { color: #0d652d; text-decoration: underline; }
+  .doc del[data-change-id] { color: #b3261e; text-decoration: line-through; }
   .doc .page-break { break-after: page; page-break-after: always; height: 0; }
   @page { size: ${page.css}; margin: 1in; }
   @media print { .doc { padding: 0; max-width: none; } }

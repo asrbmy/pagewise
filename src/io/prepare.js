@@ -1,12 +1,14 @@
 /**
  * Turn editor-only constructs into plain document content before any export:
  *  - footnote markers become superscript numbers, and the notes are appended as a numbered list;
- *  - comment marks are unwrapped (comments are not exported).
+ *  - comment marks are unwrapped (comments are not exported);
+ *  - tracked changes are accepted unless `keepTracked` (HTML and Word keep them).
  */
-export function prepareForExport(html, { keepAnchors = false } = {}) {
+export function prepareForExport(html, { keepAnchors = false, keepTracked = false } = {}) {
+  const tracked = !keepTracked && /data-change-id/.test(html || '');
   const hasAnchors = !keepAnchors && /href="#(?:h-\d+|bm-[a-z0-9-]+)"/.test(html || '');
   const marks = keepAnchors && /data-bookmark=/.test(html || '');
-  if (!html || !(hasAnchors || marks || /data-type="footnote"|data-comment-id/.test(html))) return html;
+  if (!html || !(hasAnchors || marks || tracked || /data-type="footnote"|data-comment-id/.test(html))) return html;
   const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
   if (marks) {
     // Exported pages have no editor script, so give each bookmarked block a real anchor element to jump to.
@@ -22,6 +24,11 @@ export function prepareForExport(html, { keepAnchors = false } = {}) {
       while (a.firstChild) a.parentNode.insertBefore(a.firstChild, a);
       a.remove();
     });
+  }
+  if (tracked) {
+    // formats without change tracking get the document as it would read with every change accepted
+    doc.body.querySelectorAll('del[data-change-id]').forEach((el) => el.remove());
+    doc.body.querySelectorAll('ins[data-change-id]').forEach((el) => el.replaceWith(...el.childNodes));
   }
   doc.body.querySelectorAll('span[data-comment-id]').forEach((el) => {
     while (el.firstChild) el.parentNode.insertBefore(el.firstChild, el);

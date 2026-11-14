@@ -504,8 +504,8 @@ export function WordCountDialog({ editor, pages, onClose }) {
 export function ShortcutsDialog({ onClose }) {
   const groups = [
     ['Document', [['Save now', `${MOD}S`], ['Find and replace', `${MOD}F`], ['Print', `${MOD}P`], ['Insert link', `${MOD}K`], ['Insert page break', `${MOD}Enter`]]],
-    ['Text', [['Bold', `${MOD}B`], ['Italic', `${MOD}I`], ['Underline', `${MOD}U`], ['Strikethrough', `${MOD}Shift+X`], ['Clear formatting', `${MOD}\\`], ['Undo', `${MOD}Z`], ['Redo', `${MOD}Shift+Z`]]],
-    ['Paragraph', [['Heading 1 – 6', `${MOD}Alt+1 … 6`], ['Normal text', `${MOD}Alt+0`], ['Bulleted list', `${MOD}Shift+8`], ['Numbered list', `${MOD}Shift+7`], ['Block quote', `${MOD}Shift+B`], ['Increase indent', `${MOD}]`], ['Decrease indent', `${MOD}[`]]],
+    ['Text', [['Bold', `${MOD}B`], ['Italic', `${MOD}I`], ['Underline', `${MOD}U`], ['Strikethrough', `${MOD}Shift+S`], ['Clear formatting', `${MOD}\\`], ['Undo', `${MOD}Z`], ['Redo', `${MOD}Shift+Z`]]],
+    ['Paragraph', [['Heading 1 – 6', `${MOD}Alt+1 … 6`], ['Normal text', `${MOD}Alt+0`], ['Bulleted list', `${MOD}Shift+8`], ['Numbered list', `${MOD}Shift+7`], ['Block quote', `${MOD}Shift+B`], ['Increase indent', `${MOD}]`], ['Decrease indent', `${MOD}[`], ['Right-to-left / left-to-right', `${MOD}Shift+X`]]],
     ['Alignment', [['Left', `${MOD}Shift+L`], ['Center', `${MOD}Shift+E`], ['Right', `${MOD}Shift+R`], ['Justify', `${MOD}Shift+J`]]],
     ['Navigation', [['Move between toolbar buttons', '← → Home End'], ['Open a menu', 'Enter / ↓ on the menu name'], ['Close menu or dialog', 'Esc']]],
   ];

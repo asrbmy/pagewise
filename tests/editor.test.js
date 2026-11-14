@@ -409,4 +409,34 @@ describe('page orientation and columns', () => {
     expect(styles).toContain('fo:page-width="11in"');
     expect(styles).toContain('style:print-orientation="landscape"');
   });
+
+  it('plans splits for a paragraph taller than a page', async () => {
+    const { planLineSplits } = await import('../src/editor/extensions/pagination.js');
+    const geo = { pageHeight: 1056, margin: 96 };
+    // 120 lines of 24px starting at y=96; a position is simply a line index
+    const at = (pos) => ({ top: 96 + pos * 24, bottom: 96 + pos * 24 + 24 });
+    const { splits, total } = planLineSplits(at, 0, 119, 0, geo);
+    // every line must end up clear of the margin bands
+    const place = (pos) => at(pos).top + splits.filter((s) => s.pos <= pos).reduce((a, s) => a + s.height, 0);
+    for (let p = 0; p <= 119; p++) {
+      const top = place(p);
+      const page = Math.floor(top / 1056);
+      expect(top + 24).toBeLessThanOrEqual((page + 1) * 1056 - 96 + 0.5);
+      expect(top).toBeGreaterThanOrEqual(page * 1056 + 96 - 0.5);
+    }
+    expect(splits.length).toBe(3);
+    expect(total).toBe(splits.reduce((a, s) => a + s.height, 0));
+    expect(planLineSplits(at, 0, 119, 0, geo).splits).toEqual(splits); // deterministic
+  });
+
+  it('plans row splits for a tall table and leaves a first row alone', async () => {
+    const { planRowSplits } = await import('../src/editor/extensions/pagination.js');
+    const geo = { pageHeight: 1056, margin: 96 };
+    const rows = Array.from({ length: 50 }, (_, i) => ({ pos: i + 1, top: 96 + i * 40, height: 40 }));
+    const { splits } = planRowSplits(rows, 0, geo);
+    expect(splits.length).toBeGreaterThanOrEqual(2);
+    expect(splits.every((s) => s.pos > 1 && s.kind === 'row')).toBe(true);
+    const tall = planRowSplits([{ pos: 1, top: 900, height: 200 }], 0, geo);
+    expect(tall.splits).toEqual([]);
+  });
 });

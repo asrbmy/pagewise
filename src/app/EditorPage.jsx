@@ -10,6 +10,8 @@ import { normalizeStyles, stylesCss } from '../editor/styles.js';
 import StylesDialog from '../components/StylesDialog.jsx';
 import { normalizeComments, newCommentId, resolvedCss } from '../editor/comments.js';
 import CommentsPanel from '../components/CommentsPanel.jsx';
+import ChangesPanel from '../components/ChangesPanel.jsx';
+import { trackKey } from '../editor/extensions/trackChanges.js';
 import TemplateDialog from '../components/TemplateDialog.jsx';
 import { store, AUTO_VERSION_INTERVAL } from '../storage/documents.js';
 import CropDialog from '../components/CropDialog.jsx';
@@ -108,6 +110,7 @@ function EditorSurface({ doc }) {
   const [docStyles, setDocStyles] = useState(() => normalizeStyles(doc.styles));
   const [comments, setCommentsState] = useState(() => normalizeComments(doc.comments));
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [changesOpen, setChangesOpen] = useState(false);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const commentsRef = useRef(comments);
   const [updatedAt, setUpdatedAt] = useState(doc.updatedAt);
@@ -313,6 +316,7 @@ function EditorSurface({ doc }) {
     return () => style.remove();
   }, [page.css, layout]);
   const multiColumn = page.columns > 1;
+  const suggesting = !!(editor && !editor.isDestroyed && trackKey.getState(editor.state)?.suggesting);
 
   // Measure the canvas and the document body.
   useEffect(() => {
@@ -612,6 +616,12 @@ function EditorSurface({ doc }) {
             { label: t('Select all'), shortcut: `${MOD}A`, onSelect: run('selectAll') },
             { separator: true },
             { label: t('Find and replace…'), shortcut: `${MOD}F`, onSelect: openFind },
+            { separator: true },
+            { label: t('Suggesting mode'), checked: suggesting, onSelect: () => editor.commands.setSuggesting(!suggesting) },
+            { label: t('Tracked changes panel'), checked: changesOpen, onSelect: () => { setChangesOpen(!changesOpen); setCommentsOpen(false); } },
+            { label: t('Accept all changes'), onSelect: () => chain().resolveAllChanges(true).run() },
+            { label: t('Reject all changes'), onSelect: () => chain().resolveAllChanges(false).run() },
+            { separator: true },
             { label: t('Clear formatting'), shortcut: `${MOD}\\`, onSelect: () => chain().unsetAllMarks().unsetTextAlign().run() },
           ],
         },
@@ -630,7 +640,7 @@ function EditorSurface({ doc }) {
             { separator: true },
             { label: t('Show page gaps (text never crosses a page edge)'), checked: prefs.pagination, onSelect: () => setPrefs({ pagination: !prefs.pagination }) },
             { label: t('Outline'), checked: outlineOpen, onSelect: () => setOutlineOpen(!outlineOpen) },
-            { label: t('Comments panel'), checked: commentsOpen, onSelect: () => setCommentsOpen(!commentsOpen) },
+            { label: t('Comments panel'), checked: commentsOpen, onSelect: () => { setCommentsOpen(!commentsOpen); setChangesOpen(false); } },
             { label: t('Show status bar'), checked: prefs.showStatusBar, onSelect: () => setPrefs({ showStatusBar: !prefs.showStatusBar }) },
             { label: t('Focus mode (Esc to exit)'), onSelect: () => setFocusMode(true) },
             { label: t('Full screen'), onSelect: () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.()) },
@@ -909,6 +919,7 @@ function EditorSurface({ doc }) {
       </main>
 
       {outlineOpen && editor && <OutlinePanel editor={editor} onClose={() => setOutlineOpen(false)} />}
+      {changesOpen && editor && <ChangesPanel editor={editor} suggesting={suggesting} onToggleSuggesting={(on) => editor.commands.setSuggesting(on)} onClose={() => setChangesOpen(false)} />}
       {commentsOpen && editor && <CommentsPanel editor={editor} comments={comments} onChange={setComments} onClose={() => setCommentsOpen(false)} />}
       <style>{resolvedCss(comments)}</style>
       <style>{stylesCss(docStyles)}</style>
@@ -920,6 +931,7 @@ function EditorSurface({ doc }) {
           </span>
           <span>{(cc?.characters() || 0).toLocaleString()} characters</span>
           <span>{reflow ? 'Reflow view' : `${pages} page${pages === 1 ? '' : 's'} · ${pageSize === 'a4' ? 'A4' : 'Letter'}${page.landscape ? ' landscape' : ''}${multiColumn ? ` · ${page.columns} columns` : ''}`}</span>
+          {suggesting && <span className="suggesting-badge" role="status">{t('Suggesting')}</span>}
           <span className="spacer" />
           <span className="hide-small">{prefs.spellcheck ? 'Spell check on' : 'Spell check off'}</span>
           <span>{Math.round(zoomValue * 100)}%</span>
