@@ -25,3 +25,32 @@ describe('i18n', () => {
     }
   });
 });
+
+describe('right-to-left languages', () => {
+  it('Arabic and Hebrew are registered as RTL and keep placeholders', async () => {
+    const { LANGUAGES, isRtlLanguage, applyDocumentLanguage } = await import('../src/i18n/index.js');
+    expect(isRtlLanguage('ar')).toBe(true);
+    expect(isRtlLanguage('he')).toBe(true);
+    expect(isRtlLanguage('es')).toBe(false);
+    for (const code of ['ar', 'he']) {
+      const dict = LANGUAGES.find((l) => l.code === code).dict;
+      expect(Object.keys(dict).length).toBeGreaterThan(190);
+      for (const [en, tr] of Object.entries(dict)) {
+        for (const ph of en.match(/\{\w+\}/g) || []) expect(tr, `${code}: ${en}`).toContain(ph);
+      }
+    }
+    applyDocumentLanguage('ar');
+    expect(document.documentElement.dir).toBe('rtl');
+    applyDocumentLanguage('en');
+    expect(document.documentElement.dir).toBe('ltr');
+  });
+
+  it('every language translates the toolbar labels', async () => {
+    const { translate } = await import('../src/i18n/index.js');
+    for (const code of ['es', 'fr', 'de', 'pt', 'hi', 'ar', 'he']) {
+      for (const k of ['Bold', 'Undo', 'Insert link', 'Align center', 'Font size', 'Heading 4', 'Hide formatting tools']) {
+        expect(translate(code, k), `${code}: ${k}`).not.toBe(k);
+      }
+    }
+  });
+});

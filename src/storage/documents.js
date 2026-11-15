@@ -177,7 +177,7 @@ export class DocumentStore {
   }
 
   /** Create and persist a new document. */
-  async createDocument({ title = 'Untitled document', html = EMPTY_HTML, pageSize = 'letter', layout, styles, folderId = null } = {}) {
+  async createDocument({ title = 'Untitled document', html = EMPTY_HTML, pageSize = 'letter', layout, styles, folderId = null, comments } = {}) {
     const now = Date.now();
     const text = htmlToPlainText(html);
     const doc = {
@@ -194,6 +194,8 @@ export class DocumentStore {
       createdAt: now,
       updatedAt: now,
     };
+    const kept = normalizeComments(comments);
+    if (kept.length) doc.comments = kept;
     await this._put(doc);
     return doc;
   }

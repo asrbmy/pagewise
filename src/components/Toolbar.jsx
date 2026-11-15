@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Icon from './Icon.jsx';
+import { useT } from '../i18n/index.js';
 import { useDismiss } from '../a11y/focus.js';
 import {
   FONT_FAMILIES,
@@ -17,7 +18,9 @@ const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigat
 export const MOD = isMac ? '⌘' : 'Ctrl+';
 
 /** Icon button that never steals the editor selection when clicked. */
-function Btn({ icon, label, shortcut, onClick, active, disabled, children }) {
+function Btn({ icon, label: rawLabel, shortcut, onClick, active, disabled, children }) {
+  const t = useT();
+  const label = t(rawLabel);
   return (
     <button
       type="button"
@@ -37,10 +40,25 @@ function Btn({ icon, label, shortcut, onClick, active, disabled, children }) {
 
 const Sep = () => <span className="tb-sep" role="separator" aria-orientation="vertical" />;
 
-function Popover({ icon, label, barColor, children, active }) {
+function Popover({ icon, label: rawLabel, barColor, children, active }) {
+  const t = useT();
+  const label = t(rawLabel);
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
+  const popRef = useRef(null);
   useDismiss(ref, () => setOpen(false), open);
+  // keep the popover on screen (the toolbar can wrap, and RTL mirrors it)
+  useLayoutEffect(() => {
+    const el = popRef.current;
+    if (!open || !el) return;
+    el.style.transform = '';
+    const r = el.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth;
+    let dx = 0;
+    if (r.right > vw - 8) dx = vw - 8 - r.right;
+    if (r.left + dx < 8) dx = 8 - r.left;
+    if (dx) el.style.transform = `translateX(${Math.round(dx)}px)`;
+  }, [open]);
   return (
     <div className="popover-wrap" ref={ref}>
       <button
@@ -60,7 +78,7 @@ function Popover({ icon, label, barColor, children, active }) {
         <Icon name="chevronDown" size={12} />
       </button>
       {open && (
-        <div className="popover" role="group" aria-label={label}>
+        <div className="popover" role="group" aria-label={label} ref={popRef}>
           {typeof children === 'function' ? children(() => setOpen(false)) : children}
         </div>
       )}
@@ -130,7 +148,28 @@ function currentBlockStyle(editor) {
 }
 
 export default function Toolbar({ editor, zoom, onZoom, onLink, onImage, onTable, onPrint }) {
+  const t = useT();
   const barRef = useRef(null);
+  // On phones the full toolbar is tall, so it can be folded away (remembered per browser).
+  const [folded, setFolded] = useState(() => {
+    try {
+      const saved = localStorage.getItem('pw-toolbar-folded');
+      if (saved !== null) return saved === '1';
+    } catch {
+      /* private mode */
+    }
+    return typeof window !== 'undefined' && window.matchMedia?.('(max-width: 640px)').matches; // phones start folded
+  });
+  const toggleFold = () => {
+    setFolded((f) => {
+      try {
+        localStorage.setItem('pw-toolbar-folded', f ? '0' : '1');
+      } catch {
+        /* private mode */
+      }
+      return !f;
+    });
+  };
   const [sizeDraft, setSizeDraft] = useState(null);
 
   // Arrow-key navigation between toolbar controls (buttons only; text fields keep arrows).
@@ -145,14 +184,14 @@ export default function Toolbar({ editor, zoom, onZoom, onLink, onImage, onTable
       const i = items.indexOf(t);
       if (i === -1) return;
       e.preventDefault();
-      const next = e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length;
+      const next = e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : (i + ((e.key === 'ArrowRight') !== (document.documentElement.dir === 'rtl') ? 1 : -1) + items.length) % items.length;
       items[next].focus();
     };
     el.addEventListener('keydown', onKey);
     return () => el.removeEventListener('keydown', onKey);
   }, []);
 
-  if (!editor) return <div className="toolbar" role="toolbar" aria-label="Formatting" />;
+  if (!editor) return <div className="toolbar" role="toolbar" aria-label={t('Formatting')} />;
 
   const chain = () => editor.chain().focus();
   const can = (cmd) => editor.can()[cmd]();
@@ -199,32 +238,36 @@ export default function Toolbar({ editor, zoom, onZoom, onLink, onImage, onTable
 
   return (
     <>
-    <div className="toolbar" role="toolbar" aria-label="Formatting" ref={barRef}>
+    <div className="toolbar" role="toolbar" aria-label={t('Formatting')} ref={barRef} data-folded={folded ? 'true' : undefined}>
+      <button type="button" className="tb-btn tb-toggle" aria-expanded={!folded} aria-label={folded ? t('Show formatting tools') : t('Hide formatting tools')} title={folded ? t('Show formatting tools') : t('Hide formatting tools')} onMouseDown={(e) => e.preventDefault()} onClick={toggleFold}>
+        <span className="tb-toggle-label">{t('Formatting')}</span>
+        <Icon name={folded ? 'chevronDown' : 'chevronUp'} />
+      </button>
       <Btn icon="undo" label="Undo" shortcut={`${MOD}Z`} onClick={() => chain().undo().run()} disabled={!can('undo')} />
       <Btn icon="redo" label="Redo" shortcut={`${MOD}Shift+Z`} onClick={() => chain().redo().run()} disabled={!can('redo')} />
       <Btn icon="print" label="Print" shortcut={`${MOD}P`} onClick={onPrint} />
       <Sep />
 
-      <select className="tb-select tb-zoom" aria-label="Zoom" value={String(zoom)} onChange={(e) => onZoom(e.target.value === 'fit' ? 'fit' : Number(e.target.value))}>
+      <select className="tb-select tb-zoom" aria-label={t('Zoom')} value={String(zoom)} onChange={(e) => onZoom(e.target.value === 'fit' ? 'fit' : Number(e.target.value))}>
         {ZOOM_LEVELS.map((z) => (
           <option key={z.value} value={String(z.value)}>
-            {z.label}
+            {t(z.label)}
           </option>
         ))}
       </select>
       <Sep />
 
-      <select className="tb-select tb-style" aria-label="Paragraph style" value={currentBlockStyle(editor)} onChange={(e) => applyStyle(e.target.value)}>
+      <select className="tb-select tb-style" aria-label={t('Paragraph style')} value={currentBlockStyle(editor)} onChange={(e) => applyStyle(e.target.value)}>
         {HEADING_STYLES.map((s) => (
           <option key={s.id} value={s.id}>
-            {s.label}
+            {t(s.label)}
           </option>
         ))}
       </select>
 
       <select
         className="tb-select tb-font"
-        aria-label="Font family"
+        aria-label={t('Font family')}
         value={known ? fontFamily : '__custom'}
         onChange={(e) => (e.target.value ? chain().setFontFamily(e.target.value).run() : chain().unsetFontFamily().run())}
       >
@@ -237,15 +280,15 @@ export default function Toolbar({ editor, zoom, onZoom, onLink, onImage, onTable
       </select>
       <Sep />
 
-      <div className="size-control" role="group" aria-label="Font size">
-        <button type="button" className="tb-btn" aria-label="Decrease font size" title="Decrease font size" onMouseDown={(e) => e.preventDefault()} onClick={() => stepSize(-1)}>
+      <div className="size-control" role="group" aria-label={t('Font size')}>
+        <button type="button" className="tb-btn" aria-label={t('Decrease font size')} title={t('Decrease font size')} onMouseDown={(e) => e.preventDefault()} onClick={() => stepSize(-1)}>
           <Icon name="minus" size={14} />
         </button>
         <input
           type="text"
           inputMode="numeric"
           className="size-input"
-          aria-label="Font size in points"
+          aria-label={t('Font size in points')}
           list="pw-font-sizes"
           value={sizeDraft ?? String(Math.round(fontSize * 10) / 10)}
           onChange={(e) => setSizeDraft(e.target.value.replace(/[^\d.]/g, ''))}
@@ -266,7 +309,7 @@ export default function Toolbar({ editor, zoom, onZoom, onLink, onImage, onTable
             <option key={s} value={s} />
           ))}
         </datalist>
-        <button type="button" className="tb-btn" aria-label="Increase font size" title="Increase font size" onMouseDown={(e) => e.preventDefault()} onClick={() => stepSize(1)}>
+        <button type="button" className="tb-btn" aria-label={t('Increase font size')} title={t('Increase font size')} onMouseDown={(e) => e.preventDefault()} onClick={() => stepSize(1)}>
           <Icon name="plus" size={14} />
         </button>
       </div>
@@ -325,10 +368,10 @@ export default function Toolbar({ editor, zoom, onZoom, onLink, onImage, onTable
                 }}
               >
                 <span className="menu-check">{para.lineHeight === l.value ? '✓' : ''}</span>
-                {l.label}
+                {t(l.label)}
               </button>
             ))}
-            <div className="popover-heading">Paragraph spacing</div>
+            <div className="popover-heading">{t('Paragraph spacing')}</div>
             {PARAGRAPH_SPACINGS.map((p) => (
               <button
                 key={p.label}
@@ -341,7 +384,7 @@ export default function Toolbar({ editor, zoom, onZoom, onLink, onImage, onTable
                 }}
               >
                 <span className="menu-check" />
-                {p.label}
+                {t(p.label)}
               </button>
             ))}
           </div>
@@ -356,7 +399,7 @@ export default function Toolbar({ editor, zoom, onZoom, onLink, onImage, onTable
     </div>
 
       {editor.isActive('table') && (
-        <div className="table-tools" role="group" aria-label="Table tools">
+        <div className="table-tools" role="group" aria-label={t('Table tools')}>
           <span className="table-tools-label">Table</span>
           <button type="button" className="btn btn-small" onMouseDown={(e) => e.preventDefault()} onClick={() => chain().addRowBefore().run()}>
             Row above
@@ -387,7 +430,7 @@ export default function Toolbar({ editor, zoom, onZoom, onLink, onImage, onTable
           </button>
           <select
             className="tb-select"
-            aria-label="Cell colour"
+            aria-label={t('Cell colour')}
             value=""
             onChange={(e) => {
               const v = e.target.value;

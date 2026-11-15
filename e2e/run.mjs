@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SUITES = ['e2e1', 'e2e2', 'e2e3', 'e2e4', 'ver', 'xss', 'linkrep', 'pdftest', 'mob', 'restore', 'uni', 'pag', 'fold', 'math', 'notes', 'a11y', 'lock', 'i18n', 'feat2', 'imp', 'pagenum', 'tocpages', 'caption', 'bookmark', 'styles', 'crop', 'pdftext', 'perf', 'cols', 'track', 'split'];
+const SUITES = ['e2e1', 'e2e2', 'e2e3', 'e2e4', 'ver', 'xss', 'linkrep', 'pdftest', 'mob', 'restore', 'uni', 'pag', 'fold', 'math', 'notes', 'a11y', 'lock', 'i18n', 'feat2', 'imp', 'pagenum', 'tocpages', 'caption', 'bookmark', 'styles', 'crop', 'pdftext', 'perf', 'cols', 'track', 'split', 'wcomments', 'gdoc', 'resp'];
 // Note: e2e2 continues from the browser profile e2e1 leaves behind, so run them together (or run everything).
 const wanted = process.argv.slice(2);
 const list = wanted.length ? wanted : SUITES;

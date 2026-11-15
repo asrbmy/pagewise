@@ -1,17 +1,25 @@
 /** Date / size formatting helpers for the UI. */
 
-const timeFmt = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
-const dateFmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-const fullFmt = new Intl.DateTimeFormat(undefined, { dateStyle: 'full', timeStyle: 'medium' });
+import { t, resolveLanguage } from '../i18n/index.js';
+import { getPrefs } from '../settings/prefs.js';
+
+// dates follow the interface language (the browser's own locale when the language is English)
+const locale = () => {
+  const lang = resolveLanguage(getPrefs().language);
+  return lang === 'en' ? undefined : lang;
+};
+const timeFmt = { format: (d) => new Intl.DateTimeFormat(locale(), { hour: 'numeric', minute: '2-digit' }).format(d) };
+const dateFmt = { format: (d) => new Intl.DateTimeFormat(locale(), { month: 'short', day: 'numeric', year: 'numeric' }).format(d) };
+const fullFmt = { format: (d) => new Intl.DateTimeFormat(locale(), { dateStyle: 'full', timeStyle: 'medium' }).format(d) };
 
 export function formatModified(ts, now = Date.now()) {
   if (!ts) return '';
   const d = new Date(ts);
   const n = new Date(now);
   const sameDay = d.toDateString() === n.toDateString();
-  if (sameDay) return `Today, ${timeFmt.format(d)}`;
+  if (sameDay) return t('Today, {time}', { time: timeFmt.format(d) });
   const yesterday = new Date(now - 86_400_000);
-  if (d.toDateString() === yesterday.toDateString()) return `Yesterday, ${timeFmt.format(d)}`;
+  if (d.toDateString() === yesterday.toDateString()) return t('Yesterday, {time}', { time: timeFmt.format(d) });
   return dateFmt.format(d);
 }
 

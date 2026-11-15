@@ -9,6 +9,8 @@ import fr from './fr.js';
 import de from './de.js';
 import pt from './pt.js';
 import hi from './hi.js';
+import ar from './ar.js';
+import he from './he.js';
 
 export const LANGUAGES = [
   { code: 'en', name: 'English', dict: {} },
@@ -17,7 +19,12 @@ export const LANGUAGES = [
   { code: 'de', name: 'Deutsch', dict: de },
   { code: 'pt', name: 'Português', dict: pt },
   { code: 'hi', name: 'हिन्दी', dict: hi },
+  { code: 'ar', name: 'العربية', dict: ar, rtl: true },
+  { code: 'he', name: 'עברית', dict: he, rtl: true },
 ];
+
+/** True for languages written right to left (the interface mirrors; documents keep their own direction). */
+export const isRtlLanguage = (code) => !!LANGUAGES.find((l) => l.code === code)?.rtl;
 
 /** Resolve the preference ('auto' follows the browser) to a supported language code. */
 export function resolveLanguage(pref, navLang) {
@@ -46,5 +53,8 @@ export function useT() {
 }
 
 export function applyDocumentLanguage(pref) {
-  if (typeof document !== 'undefined') document.documentElement.lang = resolveLanguage(pref);
+  if (typeof document === 'undefined') return;
+  const lang = resolveLanguage(pref);
+  document.documentElement.lang = lang;
+  document.documentElement.dir = isRtlLanguage(lang) ? 'rtl' : 'ltr';
 }

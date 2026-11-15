@@ -259,7 +259,7 @@ function EditorSurface({ doc }) {
     // Tiptap 3 stops re-rendering on every transaction by default; the toolbar, find panel and counts rely on it.
     shouldRerenderOnTransaction: true,
     immediatelyRender: true,
-    extensions: useMemo(() => buildExtensions({ placeholder: 'Start typing, or paste text from Word or a web page…' }), []),
+    extensions: useMemo(() => buildExtensions({ placeholder: t('Start typing, or paste text from Word or a web page…') }), []),
     content: doc.html,
     editorProps: {
       attributes: {
@@ -783,9 +783,9 @@ function EditorSurface({ doc }) {
   };
 
   const statusText = {
-    saved: store.persistent ? 'Saved in this browser' : 'Not saved: session only',
-    dirty: 'Unsaved changes…',
-    saving: 'Saving…',
+    saved: store.persistent ? t('Saved in this browser') : t('Not saved: session only'),
+    dirty: t('Unsaved changes…'),
+    saving: t('Saving…'),
     error: 'Could not save',
   }[saveState];
   const statusIcon = { saved: store.persistent ? 'cloudCheck' : 'cloudOff', dirty: 'pencil', saving: 'loader', error: 'alert' }[saveState];
@@ -829,7 +829,7 @@ function EditorSurface({ doc }) {
           />
           <div className="menu-row">
             <MenuBar menus={menus} />
-            <div className={`save-status save-${saveState}`} role="status" aria-live="polite" title={`Last edited ${formatFull(updatedAt)}`}>
+            <div className={`save-status save-${saveState}`} role="status" aria-live="polite" title={t('Last edited {when}', { when: formatFull(updatedAt) })}>
               <Icon name={statusIcon} size={16} />
               <span>{statusText}</span>
               {saveState === 'error' && (
@@ -837,7 +837,7 @@ function EditorSurface({ doc }) {
                   Retry
                 </button>
               )}
-              <span className="last-edit">· Last edit {formatModified(updatedAt)}</span>
+              <span className="last-edit">· {t('Last edit {when}', { when: formatModified(updatedAt) })}</span>
             </div>
           </div>
         </div>
@@ -925,15 +925,15 @@ function EditorSurface({ doc }) {
       <style>{stylesCss(docStyles)}</style>
 
       {prefs.showStatusBar && (
-        <footer className="statusbar" aria-label="Document status">
+        <footer className="statusbar" aria-label={t('Document status')}>
           <span>
-            {selText ? `${selWords.toLocaleString()} of ${(cc?.words() || 0).toLocaleString()} words selected` : `${(cc?.words() || 0).toLocaleString()} words`}
+            {selText ? t('{n} of {total} words selected', { n: selWords.toLocaleString(), total: (cc?.words() || 0).toLocaleString() }) : (cc?.words() || 0) === 1 ? t('{n} word', { n: 1 }) : t('{n} words', { n: (cc?.words() || 0).toLocaleString() })}
           </span>
-          <span>{(cc?.characters() || 0).toLocaleString()} characters</span>
-          <span>{reflow ? 'Reflow view' : `${pages} page${pages === 1 ? '' : 's'} · ${pageSize === 'a4' ? 'A4' : 'Letter'}${page.landscape ? ' landscape' : ''}${multiColumn ? ` · ${page.columns} columns` : ''}`}</span>
+          <span>{t('{n} characters', { n: (cc?.characters() || 0).toLocaleString() })}</span>
+          <span>{reflow ? t('Reflow view') : `${pages === 1 ? t('{n} page', { n: 1 }) : t('{n} pages', { n: pages })} · ${pageSize === 'a4' ? 'A4' : 'Letter'}${page.landscape ? ` · ${t('landscape')}` : ''}${multiColumn ? ` · ${t('{n} columns', { n: page.columns })}` : ''}`}</span>
           {suggesting && <span className="suggesting-badge" role="status">{t('Suggesting')}</span>}
           <span className="spacer" />
-          <span className="hide-small">{prefs.spellcheck ? 'Spell check on' : 'Spell check off'}</span>
+          <span className="hide-small">{prefs.spellcheck ? t('Spell check on') : t('Spell check off')}</span>
           <span>{Math.round(zoomValue * 100)}%</span>
         </footer>
       )}

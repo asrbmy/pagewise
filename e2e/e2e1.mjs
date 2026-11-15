@@ -30,7 +30,7 @@ await page.keyboard.down('Control'); await page.keyboard.press('k'); await page.
 await page.waitForSelector('[role=dialog]');
 await page.type('[role=dialog] input[inputmode=url]', 'example.com/docs');
 await clickText(page, '[role=dialog] button', 'Apply');
-await sleep(200);
+await sleep(600);
 await page.keyboard.press('End');
 await page.keyboard.press('Enter');
 

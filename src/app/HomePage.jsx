@@ -220,6 +220,8 @@ export default function HomePage() {
           >
             <Icon name={document.documentElement.getAttribute('data-theme') === 'dark' ? 'sun' : 'moon'} />
           </button>
+          <label className="lang-pick">
+            <Icon name="globe" size={18} />
           <select className="tb-select lang-select" aria-label={t('Language')} title={t('Language')} value={prefs.language} onChange={(e) => setPrefs({ language: e.target.value })}>
             <option value="auto">{t('Auto')}</option>
             {LANGUAGES.map((l) => (
@@ -228,7 +230,8 @@ export default function HomePage() {
               </option>
             ))}
           </select>
-          <button type="button" className="icon-btn" aria-label="About Pagewise" title="About" onClick={() => setDialog({ type: 'about' })}>
+          </label>
+          <button type="button" className="icon-btn" aria-label={t('About Pagewise')} title={t('About Pagewise')} onClick={() => setDialog({ type: 'about' })}>
             <Icon name="info" />
           </button>
         </div>
@@ -236,14 +239,14 @@ export default function HomePage() {
 
       {!store.persistent && (
         <div className="banner banner-warn" role="alert">
-          <Icon name="alert" /> Browser storage is not available here ({store.initError?.message || 'it may be disabled or this is a private window'}). You can still write, but documents will be lost when this tab closes. Download anything you want to keep.
+          <Icon name="alert" /> {t('Browser storage is not available here ({reason}). You can still write, but documents will be lost when this tab closes. Download anything you want to keep.', { reason: store.initError?.message || t('it may be disabled or this is a private window') })}
         </div>
       )}
       {store.persistent && docs && backupReminderDue(prefs, docs) && (
         <div className="banner banner-warn" role="note">
           <Icon name="alert" />
           <span>
-            {prefs.lastBackupAt ? `Your last backup was ${formatModified(prefs.lastBackupAt)}.` : 'You have not backed up your documents yet.'} Browsers can erase site data, so a backup file is your safety net.
+            {prefs.lastBackupAt ? t('Your last backup was {when}.', { when: formatModified(prefs.lastBackupAt) }) : t('You have not backed up your documents yet.')} {t('Browsers can erase site data, so a backup file is your safety net.')}
           </span>
           <button
             type="button"
@@ -251,13 +254,13 @@ export default function HomePage() {
             onClick={() =>
               guard(async () => {
                 const n = await downloadBackup(store);
-                toast(`Backed up ${n} document${n === 1 ? '' : 's'} to a file in your downloads.`, { kind: 'success' });
+                toast(n === 1 ? t('Backed up 1 document to a file in your downloads.') : t('Backed up {n} documents to a file in your downloads.', { n }), { kind: 'success' });
               })
             }
           >
-            Back up now
+            {t('Back up now')}
           </button>
-          <button type="button" className="icon-btn" aria-label="Remind me in a week" title="Remind me in a week" onClick={() => setPrefs({ backupSnoozedUntil: Date.now() + 7 * 24 * 60 * 60 * 1000 })}>
+          <button type="button" className="icon-btn" aria-label={t('Remind me in a week')} title={t('Remind me in a week')} onClick={() => setPrefs({ backupSnoozedUntil: Date.now() + 7 * 24 * 60 * 60 * 1000 })}>
             <Icon name="x" size={16} />
           </button>
         </div>
@@ -266,13 +269,13 @@ export default function HomePage() {
         <div className="banner banner-info" role="note">
           <Icon name="shield" />
           <span>
-            Your documents are saved only in this browser and are never uploaded. Clearing site data can erase them, so{' '}
+            {t('Your documents are saved only in this browser and are never uploaded. Clearing site data can erase them, so')}{' '}
             <button type="button" className="link-btn" onClick={() => setDialog({ type: 'privacy' })}>
-              back up regularly
+              {t('back up regularly')}
             </button>
             .
           </span>
-          <button type="button" className="icon-btn" aria-label="Dismiss this notice" onClick={() => setPrefs({ dismissedStorageNotice: true })}>
+          <button type="button" className="icon-btn" aria-label={t('Dismiss this notice')} onClick={() => setPrefs({ dismissedStorageNotice: true })}>
             <Icon name="x" size={16} />
           </button>
         </div>
@@ -287,7 +290,7 @@ export default function HomePage() {
             <select className="tb-select" value={prefs.sort} onChange={(e) => setPrefs({ sort: e.target.value })} aria-label={t('Sort documents')}>
               {Object.entries(SORTS).map(([id, s]) => (
                 <option key={id} value={id}>
-                  {s.label}
+                  {t(s.label)}
                 </option>
               ))}
             </select>
@@ -299,7 +302,7 @@ export default function HomePage() {
             <Icon name="file" /> {t('Templates')}
           </button>
           <button type="button" className="btn btn-primary" onClick={create} disabled={busy}>
-            <Icon name="filePlus" /> New document
+            <Icon name="filePlus" /> {t('New document')}
           </button>
           <input
             ref={importRef}
@@ -312,13 +315,13 @@ export default function HomePage() {
             }}
           />
         </div>
-        <nav className="folder-bar" aria-label="Folders">
-          {[{ id: 'all', name: 'All documents' }, { id: 'none', name: 'No folder' }, ...folders].map((f) => (
+        <nav className="folder-bar" aria-label={t('Folders')}>
+          {[{ id: 'all', name: t('All documents') }, { id: 'none', name: t('No folder') }, ...folders].map((f) => (
             <button key={f.id} type="button" className={`chip${prefs.folder === f.id ? ' is-active' : ''}`} aria-pressed={prefs.folder === f.id} onClick={() => setPrefs({ folder: f.id })}>
               {f.id !== 'all' && f.id !== 'none' && <Icon name="folder" size={14} />} {f.name}
             </button>
           ))}
-          <button type="button" className="chip chip-add" onClick={() => setDialog({ type: 'new-folder' })}>+ New folder</button>
+          <button type="button" className="chip chip-add" onClick={() => setDialog({ type: 'new-folder' })}>+ {t('New folder')}</button>
           {currentFolder && (
             <>
               <button type="button" className="link-btn" onClick={() => setDialog({ type: 'rename-folder' })}>{t('Rename folder')}</button>
@@ -331,13 +334,13 @@ export default function HomePage() {
           <div className="banner banner-error" role="alert">
             <Icon name="alert" /> {error}{' '}
             <button type="button" className="link-btn" onClick={load}>
-              Try again
+              {t('Try again')}
             </button>
           </div>
         )}
 
         {loading && (
-          <div className="doc-grid" aria-busy="true" aria-label="Loading documents">
+          <div className="doc-grid" aria-busy="true" aria-label={t('Loading documents')}>
             {[0, 1, 2].map((i) => (
               <div key={i} className="doc-card skeleton" aria-hidden="true" />
             ))}
@@ -349,10 +352,10 @@ export default function HomePage() {
             <Logo size={56} />
             {hasQuery ? (
               <>
-                <h2>No documents match "{debounced}"</h2>
+                <h2>{t('No documents match "{q}"', { q: debounced })}</h2>
                 <p>{t('Search looks at titles and document text. Try a different word.')}</p>
                 <button type="button" className="btn" onClick={() => setQuery('')}>
-                  Clear search
+                  {t('Clear search')}
                 </button>
               </>
             ) : (
@@ -361,10 +364,10 @@ export default function HomePage() {
                 <p>{t('Create a document, or import a Word (.docx), Markdown or text file. Everything stays in this browser.')}</p>
                 <div className="button-row center">
                   <button type="button" className="btn btn-primary" onClick={create} disabled={busy}>
-                    <Icon name="filePlus" /> New document
+                    <Icon name="filePlus" /> {t('New document')}
                   </button>
                   <button type="button" className="btn" onClick={() => importRef.current?.click()} disabled={busy}>
-                    <Icon name="upload" /> Import file
+                    <Icon name="upload" /> {t('Import file')}
                   </button>
                 </div>
               </>
@@ -379,8 +382,8 @@ export default function HomePage() {
                 <button type="button" className="doc-open" onClick={() => openDocument(d.id)}>
                   <span className="doc-title">{d.title}</span>
                   <span className="doc-snippet">{d.locked ? '🔒 ' + t('Password-protected') : d.snippet || t('Empty document')}</span>
-                  <span className="doc-meta" title={`Last modified ${formatFull(d.updatedAt)}`}>
-                    <Icon name="file" size={14} /> {formatModified(d.updatedAt)} · {d.wordCount.toLocaleString()} word{d.wordCount === 1 ? '' : 's'}
+                  <span className="doc-meta" title={t('Last modified {when}', { when: formatFull(d.updatedAt) })}>
+                    <Icon name="file" size={14} /> {formatModified(d.updatedAt)} · {d.wordCount === 1 ? t('{n} word', { n: 1 }) : t('{n} words', { n: d.wordCount.toLocaleString() })}
                   </span>
                 </button>
                 <CardMenu

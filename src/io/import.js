@@ -6,10 +6,12 @@
 import { sanitizeHtml } from './sanitize.js';
 import { importOdt } from './odtImport.js';
 import { importRtf } from './rtfImport.js';
+import { isGoogleDocsHtml, convertGoogleHtml, readGoogleZip } from './googleDocs.js';
+import { embedCommentsInDocx, anchorComments } from './wordComments.js';
 import { embedColorsInDocx, makeTransform, styleMapRules, applyFormatting } from './wordFormat.js';
 
 export const MAX_IMPORT_BYTES = 40 * 1024 * 1024;
-export const IMPORT_ACCEPT = '.docx,.odt,.rtf,.txt,.md,.markdown,.html,.htm,text/plain,text/markdown,text/html';
+export const IMPORT_ACCEPT = '.docx,.odt,.rtf,.txt,.md,.markdown,.html,.htm,.zip,text/plain,text/markdown,text/html';
 
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -46,7 +48,8 @@ async function importDocx(file) {
   }
   const mammoth = (await import('mammoth')).default || (await import('mammoth'));
   const original = await file.arrayBuffer();
-  const arrayBuffer = await embedColorsInDocx(original);
+  const { buffer: withMarkers, comments: wordComments } = await embedCommentsInDocx(original);
+  const arrayBuffer = await embedColorsInDocx(withMarkers);
   // Browsers use `arrayBuffer`; mammoth's Node build (used by the test-suite) wants `buffer`.
   const input = (buf) => ({ arrayBuffer: buf, ...(typeof Buffer !== 'undefined' ? { buffer: Buffer.from(buf) } : {}) });
   const baseStyles = [
@@ -79,10 +82,19 @@ async function importDocx(file) {
       warnings.push(msg);
     }
   });
+  let html = applyFormatting(result.value, table);
+  let comments = [];
+  if (wordComments.size) {
+    const anchored = anchorComments(html, wordComments);
+    html = anchored.html;
+    comments = anchored.comments;
+    if (comments.length) warnings.push(`${comments.length} Word comment${comments.length === 1 ? '' : 's'} imported (each starts with its author's name; replies appear as separate comments).`);
+    if (anchored.dropped > 0) warnings.push(`${anchored.dropped} Word comment${anchored.dropped === 1 ? ' was' : 's were'} not imported because ${anchored.dropped === 1 ? 'it' : 'they'} could not be tied to text.`);
+  }
   warnings.push(
-    'Imported text formatting (bold, italic, colours, highlights, fonts, sizes, alignment) is kept where it was applied directly to the text. Formatting that comes from Word styles, plus headers/footers, comments, columns and page layout, is not carried over.',
+    'Imported text formatting (bold, italic, colours, highlights, fonts, sizes, alignment) is kept where it was applied directly to the text. Formatting that comes from Word styles, plus headers/footers, tracked changes, columns and page layout, is not carried over.',
   );
-  return { html: sanitizeHtml(applyFormatting(result.value, table)) || '<p></p>', warnings };
+  return { html: sanitizeHtml(html) || '<p></p>', warnings, comments };
 }
 
 /** Pick an importer from the file name / type. */
@@ -112,15 +124,31 @@ export async function importFile(file) {
   if (ext === 'md' || ext === 'markdown' || file.type === 'text/markdown') {
     return { title, html: (await markdownToHtml(await file.text())) || '<p></p>', warnings: [] };
   }
+  if (ext === 'zip') {
+    let pack;
+    try {
+      pack = await readGoogleZip(await file.arrayBuffer());
+    } catch (err) {
+      throw new ImportError(err.message || 'This zip file could not be read.');
+    }
+    if (!pack) throw new ImportError('This zip file has no .html page in it. To import a Google Doc, choose File → Download → Web Page (.html, zipped) in Google Docs, then import that zip.');
+    const converted = convertGoogleHtml(pack.html, pack.images);
+    return { title, html: sanitizeHtml(converted.html) || '<p></p>', warnings: converted.warnings };
+  }
   if (ext === 'html' || ext === 'htm' || file.type === 'text/html') {
+    const text = await file.text();
+    if (isGoogleDocsHtml(text)) {
+      const converted = convertGoogleHtml(text);
+      return { title, html: sanitizeHtml(converted.html) || '<p></p>', warnings: ['Imported as a Google Docs page.', ...converted.warnings] };
+    }
     return {
       title,
-      html: sanitizeHtml(await file.text()) || '<p></p>',
+      html: sanitizeHtml(text) || '<p></p>',
       warnings: ['Only the HTML content was imported; stylesheets and scripts from the page were discarded.'],
     };
   }
   if (ext === 'txt' || file.type === 'text/plain' || !ext) {
     return { title, html: textToHtml(await file.text()), warnings: [] };
   }
-  throw new ImportError(`".${ext}" files are not supported. Import .docx, .odt, .rtf, .txt, .md or .html files.`);
+  throw new ImportError(`".${ext}" files are not supported. Import .docx, .odt, .rtf, .txt, .md, .html or (Google Docs) .zip files.`);
 }

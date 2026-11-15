@@ -25,6 +25,8 @@ const P = {
   minus: ['M5 12h14'],
   plus: ['M12 5v14', 'M5 12h14'],
   chevronDown: ['m6 9 6 6 6-6'],
+  chevronUp: ['m18 15-6-6-6 6'],
+  globe: ['M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z', 'M2 12h20', 'M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z'],
   chevronLeft: ['m15 18-6-6 6-6'],
   search: ['M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16', 'm21 21-4.3-4.3'],
   x: ['M18 6 6 18', 'm6 6 12 12'],
@@ -57,12 +59,15 @@ const P = {
   colAdd: ['M4 3h6v18H4z', 'M14 3h6', 'M14 8h6', 'M17 11v6', 'M14 14h6'],
 };
 
+/** Icons that point somewhere: they mirror in right-to-left interfaces. */
+const DIRECTIONAL = new Set(['undo', 'redo', 'indent', 'outdent']);
+
 export default function Icon({ name, size = 18, label, className = '', strokeWidth = 1.8 }) {
   const paths = P[name];
   if (!paths) return null;
   return (
     <svg
-      className={`icon ${name === 'loader' ? 'spin' : ''} ${className}`}
+      className={`icon ${name === 'loader' ? 'spin' : ''} ${DIRECTIONAL.has(name) ? 'icon-flip' : ''} ${className}`}
       width={size}
       height={size}
       viewBox="0 0 24 24"

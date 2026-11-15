@@ -23,7 +23,7 @@ export async function createFromTemplate(id, folderId = null) {
 
 /** Import a file as a brand-new document. Resolves to `{ doc, warnings }`. */
 export async function importIntoNewDocument(file) {
-  const { title, html, warnings } = await importFile(file);
-  const doc = await store.createDocument({ title, html, pageSize: getPrefs().pageSize });
+  const { title, html, warnings, comments } = await importFile(file);
+  const doc = await store.createDocument({ title, html, pageSize: getPrefs().pageSize, comments });
   return { doc, warnings };
 }
