@@ -54,3 +54,32 @@ describe('right-to-left languages', () => {
     }
   });
 });
+
+describe('dialog and template text', () => {
+  it('is translated in every language', async () => {
+    const { TEMPLATES } = await import('../src/editor/templates.js');
+    const { LANGUAGES } = await import('../src/i18n/index.js');
+    const keys = ['Close dialog', 'Cancel', 'Delete', 'Move', 'Leave anyway', ...TEMPLATES.flatMap((x) => [x.label, x.description])];
+    for (const l of LANGUAGES.filter((x) => x.dict && Object.keys(x.dict).length)) for (const k of keys) expect(l.dict[k], `${l.code}: ${k}`).toBeTruthy();
+  });
+});
+
+describe('messages', () => {
+  it('storage and backup errors are translated in every language', async () => {
+    const { LANGUAGES } = await import('../src/i18n/index.js');
+    const keys = ['That password is not correct.', 'This file is not a Pagewise backup.', 'Password removed.', 'Backup failed.', 'Created "{title}".'];
+    for (const l of LANGUAGES.filter((x) => Object.keys(x.dict).length)) for (const k of keys) expect(l.dict[k], `${l.code}: ${k}`).toBeTruthy();
+  });
+});
+
+describe('dictionaries', () => {
+  it('have no duplicate keys', async () => {
+    const fs = await import('node:fs');
+    for (const code of ['es', 'fr', 'de', 'pt', 'hi', 'ar', 'he']) {
+      const src = fs.readFileSync(`src/i18n/${code}.js`, 'utf8');
+      const keys = [...src.matchAll(/^ {2}(?:'((?:[^'\\]|\\.)*)'|([A-Za-z_]\w*)):/gm)].map((m) => m[1] ?? m[2]);
+      const dup = keys.filter((k, i) => keys.indexOf(k) !== i);
+      expect(dup, code).toEqual([]);
+    }
+  });
+});

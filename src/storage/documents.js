@@ -26,6 +26,9 @@ export const MAX_AUTO_VERSIONS = 40;
 export const AUTO_VERSION_INTERVAL = 10 * 60 * 1000;
 export const EMPTY_HTML = '<p></p>';
 // Lowered by tests; real use keeps the default.
+/** Lets the folder-sync module learn about deletions (so they can be passed on) without a circular import. */
+export const syncHooks = { onDelete: null };
+
 export const cryptoSettings = { iterations: DEFAULT_ITERATIONS };
 
 export class StorageError extends Error {
@@ -352,6 +355,36 @@ export class DocumentStore {
   async deleteDocument(id) {
     await this._delete(id);
     await this._deleteVersionsOf(id);
+    try {
+      syncHooks.onDelete?.(id);
+    } catch {
+      /* sync bookkeeping must never block a delete */
+    }
+  }
+
+  /** Remove a document because a synced folder said it was deleted elsewhere (not reported back as a new deletion). */
+  async removeForSync(id) {
+    await this._delete(id);
+    await this._deleteVersionsOf(id);
+  }
+
+  /**
+   * Store a document that arrived through folder sync, replacing any local document with the same
+   * id. The previous local content is kept as a version first, and a folder is matched (or created) by name.
+   */
+  async applySyncedDocument(doc, folderName = '') {
+    let folderId = null;
+    if (folderName) {
+      const have = await this.listFolders();
+      folderId = (have.find((f) => f.name.toLowerCase() === folderName.toLowerCase()) || (await this.createFolder(folderName))).id;
+    }
+    const before = await this._get(doc.id);
+    if (before && !before.locked && before.html !== doc.html) {
+      await this.addVersion(doc.id, { html: before.html, title: before.title, label: 'Before sync' });
+    }
+    const next = { ...doc, folderId };
+    await this._put(next);
+    return next;
   }
 
   // ------------------------------------------------------------ folders

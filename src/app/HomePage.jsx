@@ -13,6 +13,8 @@ import { useToast } from '../components/Toasts.jsx';
 import { usePwaState, promptInstall } from '../pwa/register.js';
 import { downloadBackup, backupReminderDue } from '../io/backup.js';
 import MoveDialog from '../components/MoveDialog.jsx';
+import SyncDialog from '../components/SyncDialog.jsx';
+import { loadState as loadSyncState, syncNow } from '../storage/folderSync.js';
 import TemplateDialog from '../components/TemplateDialog.jsx';
 import { createNewDocument, createFromTemplate, importIntoNewDocument, openDocument } from './actions.js';
 import { formatModified, formatFull } from './format.js';
@@ -99,6 +101,17 @@ export default function HomePage() {
     document.title = 'Pagewise';
   }, []);
 
+  // Quietly sync when the page opens, if sync is on and the browser still allows access to the folder.
+  useEffect(() => {
+    if (!loadSyncState().enabled) return;
+    syncNow()
+      .then((r) => {
+        if (r && !r.needsPermission && (r.pulled || r.removed)) load();
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const guard = async (fn) => {
     try {
       setBusy(true);
@@ -119,7 +132,7 @@ export default function HomePage() {
       const f = await store.createFolder(name);
       setDialog(null);
       setPrefs({ folder: f.id });
-      toast(`Created folder "${f.name}".`, { kind: 'success' });
+      toast(t('Created folder "{name}".', { name: f.name }), { kind: 'success' });
     });
   const renameFolder = (name) =>
     guard(async () => {
@@ -133,7 +146,7 @@ export default function HomePage() {
       await store.deleteFolder(currentFolder.id);
       setDialog(null);
       setPrefs({ folder: 'all' });
-      toast(`Deleted folder "${name}". Its documents were kept.`, { kind: 'success' });
+      toast(t('Deleted folder "{name}". Its documents were kept.', { name }), { kind: 'success' });
     });
   const moveDoc = (doc, folderId) =>
     guard(async () => {
@@ -146,14 +159,14 @@ export default function HomePage() {
     guard(async () => {
       if (!file) return;
       const { doc, warnings } = await importIntoNewDocument(file);
-      toast(`Imported "${doc.title}".`, { kind: warnings.length ? 'warning' : 'success', details: warnings });
+      toast(t('Imported "{title}".', { title: doc.title }), { kind: warnings.length ? 'warning' : 'success', details: warnings });
       openDocument(doc.id);
     });
 
   const copy = (doc) =>
     guard(async () => {
       const c = await store.duplicateDocument(doc.id);
-      toast(`Created "${c.title}".`, { kind: 'success' });
+      toast(t('Created "{title}".', { title: c.title }), { kind: 'success' });
       await load();
     });
 
@@ -164,10 +177,10 @@ export default function HomePage() {
         toast('This document is password-protected. Open it and enter the password first.', { kind: 'warning' });
         return;
       }
-      const pending = toast(`Preparing ${EXPORTERS[format].label}…`, { duration: 0 });
+      const pending = toast(t('Preparing {label}…', { label: EXPORTERS[format].label }), { duration: 0 });
       try {
         const result = await exportAndDownload(format, full);
-        toast(`Downloaded ${result.filename}`, { kind: result.warnings.length ? 'warning' : 'success', details: result.warnings });
+        toast(t('Downloaded {name}', { name: result.filename }), { kind: result.warnings.length ? 'warning' : 'success', details: result.warnings });
       } finally {
         toast.dismiss(pending);
       }
@@ -176,7 +189,7 @@ export default function HomePage() {
   const remove = (doc) =>
     guard(async () => {
       await store.deleteDocument(doc.id);
-      toast(`Deleted "${doc.title}".`, { kind: 'success' });
+      toast(t('Deleted "{title}".', { title: doc.title }), { kind: 'success' });
       setDialog(null);
       await load();
     });
@@ -208,6 +221,9 @@ export default function HomePage() {
               {t('Install app')}
             </button>
           )}
+          <button type="button" className="icon-btn" aria-label={t('Sync with a folder')} title={t('Sync with a folder')} data-testid="sync-open" onClick={() => setDialog({ type: 'sync' })}>
+            <Icon name="sync" />
+          </button>
           <button type="button" className="icon-btn" aria-label={t('Privacy and storage')} title={t('Privacy and storage')} onClick={() => setDialog({ type: 'privacy' })}>
             <Icon name="shield" />
           </button>
@@ -406,17 +422,18 @@ export default function HomePage() {
       {dialog?.type === 'new-folder' && <PromptDialog title={t('New folder')} label={t('Folder name')} confirmLabel={t('Create')} onSubmit={addFolder} onCancel={() => setDialog(null)} />}
       {dialog?.type === 'rename-folder' && currentFolder && <PromptDialog title="Rename folder" label="Folder name" initialValue={currentFolder.name} onSubmit={renameFolder} onCancel={() => setDialog(null)} />}
       {dialog?.type === 'delete-folder' && currentFolder && (
-        <ConfirmDialog title="Delete folder?" message={`"${currentFolder.name}" will be deleted. The documents inside are not deleted; they move to "No folder".`} confirmLabel="Delete folder" danger onConfirm={removeFolder} onCancel={() => setDialog(null)} />
+        <ConfirmDialog title="Delete folder?" message={t('"{name}" will be deleted. The documents inside are not deleted; they move to "No folder".', { name: currentFolder.name })} confirmLabel="Delete folder" danger onConfirm={removeFolder} onCancel={() => setDialog(null)} />
       )}
       {dialog?.type === 'move' && <MoveDialog doc={dialog.doc} folders={folders} onMove={(id) => moveDoc(dialog.doc, id)} onClose={() => setDialog(null)} />}
       {dialog?.type === 'templates' && <TemplateDialog busy={busy} onPick={createTemplate} onClose={() => setDialog(null)} />}
+      {dialog?.type === 'sync' && <SyncDialog onClose={() => setDialog(null)} onSynced={load} />}
       {dialog?.type === 'privacy' && <PrivacyDialog onClose={() => setDialog(null)} onRestored={load} />}
       {dialog?.type === 'about' && <AboutDialog onClose={() => setDialog(null)} />}
       {dialog?.type === 'rename' && <PromptDialog title={t('Rename document')} label={t('Document title')} initialValue={dialog.doc.title} onCancel={() => setDialog(null)} onSubmit={(t) => rename(dialog.doc, t)} />}
       {dialog?.type === 'delete' && (
         <ConfirmDialog
           title="Delete this document?"
-          message={`"${dialog.doc.title}" will be permanently removed from this browser. This cannot be undone.`}
+          message={t('"{title}" will be permanently removed from this browser. This cannot be undone.', { title: dialog.doc.title })}
           confirmLabel="Delete"
           danger
           onCancel={() => setDialog(null)}

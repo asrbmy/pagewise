@@ -4,7 +4,7 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import { buildExtensions } from '../editor/extensions/index.js';
 import { cleanPastedHtml } from '../editor/pasteClean.js';
 import { fileToImageDataUrl, isImageFile } from '../editor/images.js';
-import { PAGE_SIZES, PAGE_MARGIN, ZOOM_LEVELS } from '../editor/constants.js';
+import { PAGE_MARGIN, ZOOM_LEVELS } from '../editor/constants.js';
 import { normalizeLayout, pageMarginRules, pageGeometry } from '../editor/layout.js';
 import { normalizeStyles, stylesCss } from '../editor/styles.js';
 import StylesDialog from '../components/StylesDialog.jsx';
@@ -436,14 +436,14 @@ function EditorSurface({ doc }) {
     setBusyExport(true);
     await save();
     const label = EXPORTERS[format].label;
-    const pending = toast(`Preparing ${label}…`, { duration: 0 });
+    const pending = toast(t('Preparing {label}…', { label }), { duration: 0 });
     try {
       const result = await exportAndDownload(format, { title, html: editor.getHTML(), pageSize, layout, styles: docStyles });
       toast.dismiss(pending);
-      toast(`Downloaded ${result.filename}`, { kind: result.warnings.length ? 'warning' : 'success', details: result.warnings });
+      toast(t('Downloaded {name}', { name: result.filename }), { kind: result.warnings.length ? 'warning' : 'success', details: result.warnings });
     } catch (err) {
       toast.dismiss(pending);
-      toast(`Export failed: ${err.message || 'unknown error'}`, { kind: 'error' });
+      toast(t('Export failed: {reason}', { reason: err.message ? t(err.message) : t('unknown error') }), { kind: 'error' });
     } finally {
       setBusyExport(false);
     }
@@ -453,7 +453,7 @@ function EditorSurface({ doc }) {
     if (!(await save())) return;
     try {
       const copy = await store.duplicateDocument(doc.id);
-      toast(`Created "${copy.title}".`, { kind: 'success' });
+      toast(t('Created "{title}".', { title: copy.title }), { kind: 'success' });
       openDocument(copy.id);
     } catch (err) {
       toast(err.message, { kind: 'error' });
@@ -483,7 +483,7 @@ function EditorSurface({ doc }) {
     try {
       await save();
       const { doc: created, warnings } = await importIntoNewDocument(file);
-      toast(`Imported "${created.title}" as a new document.`, { kind: warnings.length ? 'warning' : 'success', details: warnings });
+      toast(t('Imported "{title}" as a new document.', { title: created.title }), { kind: warnings.length ? 'warning' : 'success', details: warnings });
       openDocument(created.id);
     } catch (err) {
       toast(err.message || 'Import failed.', { kind: 'error' });
@@ -495,7 +495,7 @@ function EditorSurface({ doc }) {
       dirty.current = false;
       clearTimeout(timer.current);
       await store.deleteDocument(doc.id);
-      toast(`Deleted "${title}".`, { kind: 'success' });
+      toast(t('Deleted "{title}".', { title }), { kind: 'success' });
       goHome();
     } catch (err) {
       toast(err.message, { kind: 'error' });
@@ -594,7 +594,7 @@ function EditorSurface({ doc }) {
             { label: t('Back up all documents…'), onSelect: async () => {
               try {
                 const n = await downloadBackup(store);
-                toast(`Backed up ${n} document${n === 1 ? '' : 's'}.`, { kind: 'success' });
+                toast(n === 1 ? t('Backed up 1 document.') : t('Backed up {n} documents.', { n }), { kind: 'success' });
               } catch (err) {
                 toast(err.message, { kind: 'error' });
               }

@@ -36,7 +36,7 @@ import {
   UnderlineType,
 } from 'docx';
 import { parseDataUrl, imageSize } from './imageBytes.js';
-import { PAGE_SIZES, PAGE_MARGIN } from '../editor/constants.js';
+import { PAGE_MARGIN } from '../editor/constants.js';
 
 const FONT = 'Calibri';
 const HEADINGS = {

@@ -1,10 +1,12 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useFocusTrap } from '../a11y/focus.js';
 import Icon from './Icon.jsx';
+import { useT } from '../i18n/index.js';
 
 /** Accessible modal dialog: focus trap, Escape to close, labelled by its title. */
 export function Dialog({ title, onClose, children, footer, size = 'md', description }) {
   const ref = useRef(null);
+  const t = useT();
   const titleId = useId();
   const descId = useId();
   useFocusTrap(ref, true);
@@ -32,14 +34,14 @@ export function Dialog({ title, onClose, children, footer, size = 'md', descript
         tabIndex={-1}
       >
         <div className="dialog-header">
-          <h2 id={titleId}>{title}</h2>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close dialog">
+          <h2 id={titleId}>{t(title)}</h2>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label={t('Close dialog')}>
             <Icon name="x" />
           </button>
         </div>
         {description && (
           <p id={descId} className="dialog-description">
-            {description}
+            {t(description)}
           </p>
         )}
         <div className="dialog-body">{children}</div>
@@ -50,6 +52,7 @@ export function Dialog({ title, onClose, children, footer, size = 'md', descript
 }
 
 export function ConfirmDialog({ title, message, confirmLabel = 'Confirm', danger = false, onConfirm, onCancel }) {
+  const t = useT();
   return (
     <Dialog
       title={title}
@@ -58,21 +61,22 @@ export function ConfirmDialog({ title, message, confirmLabel = 'Confirm', danger
       footer={
         <>
           <button type="button" className="btn" onClick={onCancel} data-autofocus>
-            Cancel
+            {t('Cancel')}
           </button>
           <button type="button" className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`} onClick={onConfirm}>
-            {confirmLabel}
+            {t(confirmLabel)}
           </button>
         </>
       }
     >
-      <p>{message}</p>
+      <p>{t(message)}</p>
     </Dialog>
   );
 }
 
 /** Single-field prompt (rename, etc.). */
 export function PromptDialog({ title, label, initialValue = '', confirmLabel = 'Save', onSubmit, onCancel }) {
+  const t = useT();
   const [value, setValue] = useState(initialValue);
   const inputId = useId();
   const submit = (e) => {
@@ -83,7 +87,7 @@ export function PromptDialog({ title, label, initialValue = '', confirmLabel = '
     <Dialog title={title} onClose={onCancel} size="sm">
       <form onSubmit={submit}>
         <label htmlFor={inputId} className="field-label">
-          {label}
+          {t(label)}
         </label>
         <input
           id={inputId}
@@ -96,10 +100,10 @@ export function PromptDialog({ title, label, initialValue = '', confirmLabel = '
         />
         <div className="dialog-footer inline">
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {t('Cancel')}
           </button>
           <button type="submit" className="btn btn-primary">
-            {confirmLabel}
+            {t(confirmLabel)}
           </button>
         </div>
       </form>

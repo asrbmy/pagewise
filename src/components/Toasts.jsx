@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import Icon from './Icon.jsx';
+import { useT } from '../i18n/index.js';
 
 const ToastContext = createContext(() => {});
 
@@ -8,6 +9,7 @@ const ToastContext = createContext(() => {});
  * polite live region. `details` is an optional list of extra lines (e.g. export warnings).
  */
 export function ToastProvider({ children }) {
+  const t = useT();
   const [toasts, setToasts] = useState([]);
   const idRef = useRef(0);
 
@@ -37,20 +39,20 @@ export function ToastProvider({ children }) {
     <ToastContext.Provider value={value}>
       {children}
       <div className="toasts" aria-live="polite">
-        {toasts.map((t) => (
-          <div key={t.id} className={`toast toast-${t.kind}`} role={t.kind === 'error' ? 'alert' : 'status'}>
-            <Icon name={icons[t.kind] || 'info'} />
+        {toasts.map((x) => (
+          <div key={x.id} className={`toast toast-${x.kind}`} role={x.kind === 'error' ? 'alert' : 'status'}>
+            <Icon name={icons[x.kind] || 'info'} />
             <div className="toast-text">
-              <div>{t.message}</div>
-              {t.details.length > 0 && (
+              <div>{t(x.message)}</div>
+              {x.details.length > 0 && (
                 <ul>
-                  {t.details.map((d) => (
-                    <li key={d}>{d}</li>
+                  {x.details.map((d) => (
+                    <li key={d}>{t(d)}</li>
                   ))}
                 </ul>
               )}
             </div>
-            <button type="button" className="icon-btn" aria-label="Dismiss notification" onClick={() => dismiss(t.id)}>
+            <button type="button" className="icon-btn" aria-label={t('Dismiss notification')} onClick={() => dismiss(x.id)}>
               <Icon name="x" size={16} />
             </button>
           </div>

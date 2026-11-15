@@ -51,7 +51,7 @@ Without `BASE_PATH` the build uses relative asset paths (`./`), which also works
 
 **Responsive layout**: from 320 px phones to wide desktops nothing scrolls sideways and no tool is hidden: the toolbar wraps onto extra rows instead of cutting tools off, menus wrap, popovers are kept on screen, and on phones the toolbar starts folded behind a "Formatting" bar (remembered per browser). The `resp` browser suite checks every toolbar control and menu at 320, 390, 820 and 1366 px.
 
-**Languages**: English, Spanish, French, German, Portuguese, Hindi, Arabic and Hebrew (picker with a globe icon in the home header; "Auto" follows the browser). The home page, lock screens, editor menus, toolbar labels, status bar and common labels are translated; Spanish, French, Arabic and Hebrew cover the most strings, and dates follow the chosen language. **Arabic and Hebrew mirror the whole interface** (`dir="rtl"`: menus, toolbar, panels, toasts, scroll and arrow-key order), while the document area keeps its own direction, set per paragraph (see Text direction). The Arabic and Hebrew texts were written without a native-speaker review, so wording corrections are welcome. Dialog bodies, help and some error messages are still English. Add a language by creating `src/i18n/<code>.js` (English text → translation) and listing it in `src/i18n/index.js` (add `rtl: true` for right-to-left scripts).
+**Languages**: English, Spanish, French, German, Portuguese, Hindi, Arabic and Hebrew (picker with a globe icon in the home header; "Auto" follows the browser). The home page, lock screens, editor menus, toolbar labels, status bar and common labels are translated; Spanish, French, Arabic and Hebrew cover the most strings, and dates follow the chosen language. **Arabic and Hebrew mirror the whole interface** (`dir="rtl"`: menus, toolbar, panels, toasts, scroll and arrow-key order), while the document area keeps its own direction, set per paragraph (see Text direction). The Arabic and Hebrew texts were written without a native-speaker review, so wording corrections are welcome. Dialog frames, confirmations, templates and the sync dialog are translated; the Privacy and About dialogs, notifications and the common storage and backup errors are too; the help and styles dialog bodies and import-format errors are still English. Add a language by creating `src/i18n/<code>.js` (English text → translation) and listing it in `src/i18n/index.js` (add `rtl: true` for right-to-left scripts).
 
 **Outline and find**: View → Outline lists the headings and jumps to them. Find and replace supports match case, whole word and regular expressions (replacement text can use `$1`).
 
@@ -172,4 +172,19 @@ MIT, see `LICENSE`. Change it if you prefer another.
 
 ## Third-party assets
 
-- `public/fonts/DejaVuSans.ttf` (DejaVu Sans, Bitstream Vera / public-domain licence, see `public/fonts/DejaVu-LICENSE.txt`) is used only to make non-Latin PDF text selectable.
+- `public/fonts/DejaVuSans.ttf` (DejaVu Sans, Bitstream Vera / public-domain licence, see `public/fonts/DejaVu-LICENSE.txt`) is used only to make non-Latin PDF text selectable.## Sync through your own folder
+
+Pagewise has no server, so it cannot sync by itself, but it can keep your documents in a folder on your device that **your own** Dropbox, Google Drive, OneDrive or Syncthing client already syncs. Use the sync button on the home screen, choose the folder, and Pagewise writes one small `<id>.pagewise.json` file per document and reads changes back (on opening the home screen and when you press **Sync now**).
+
+- Needs a browser with the File System Access API (Chrome, Edge and other Chromium browsers on a computer). Elsewhere the button explains this and backups remain the way to move documents.
+- Rules: new documents are copied both ways; if only one side changed, that side wins; if both changed, the newer edit wins and the other text is kept in version history; deletions are passed on through a small `pagewise-deleted.json` file.
+- Files from the folder go through the same sanitising as imports, and unreadable files are skipped and reported.
+- Pagewise itself still makes no network requests. The files in the folder are **not encrypted** (locked documents stay encrypted), so only pick a folder you trust.
+- The folder choice is remembered in this browser; after a restart the browser may ask permission again, which the dialog handles.
+
+
+
+## Security notes
+
+- Production dependencies have no known advisories (`npm audit --omit=dev`). The build-time `vite-plugin-pwa` chain is pinned to patched `glob`/`minimatch` through `overrides`; one low advisory (`deepmerge`, build tooling only, no upstream fix yet) remains and never ships in the app.
+- Folder sync caps file size and count, ignores unsafe file names, clamps far-future timestamps and sanitises everything it reads.

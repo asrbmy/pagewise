@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useDismiss } from '../a11y/focus.js';
+import { useT } from '../i18n/index.js';
 
 /**
  * Application menu bar (File, Edit, View …) following the WAI-ARIA menubar pattern:
@@ -8,6 +9,7 @@ import { useDismiss } from '../a11y/focus.js';
  * menus: [{ label, items: [{ label, shortcut?, onSelect, disabled?, checked?, separator? }] }]
  */
 export default function MenuBar({ menus }) {
+  const t = useT();
   const [open, setOpen] = useState(-1);
   const barRef = useRef(null);
   const baseId = useId();
@@ -78,7 +80,7 @@ export default function MenuBar({ menus }) {
   };
 
   return (
-    <div className="menubar" role="menubar" aria-label="Application menu" ref={barRef}>
+    <div className="menubar" role="menubar" aria-label={t('Application menu')} ref={barRef}>
       {menus.map((menu, i) => (
         <div className="menu-wrap" key={menu.label}>
           <button
