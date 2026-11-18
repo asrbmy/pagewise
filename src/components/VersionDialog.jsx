@@ -1,3 +1,4 @@
+import { useT } from '../i18n/index.js';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Dialog } from './Dialog.jsx';
 import { sanitizeHtml } from '../io/sanitize.js';
@@ -9,6 +10,7 @@ import { formatModified } from '../app/format.js';
  * and on request here. They live in this browser only, like the documents themselves.
  */
 export default function VersionDialog({ store, docId, title, flush, onRestore, onClose, notify }) {
+  const t = useT();
   const [versions, setVersions] = useState(null);
   const [selected, setSelected] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -94,15 +96,15 @@ export default function VersionDialog({ store, docId, title, flush, onRestore, o
 
   return (
     <Dialog
-      title="Version history"
+      title={t('Version history')}
       size="lg"
       onClose={onClose}
-      description="Snapshots are kept in this browser only. They are taken when you open a document, every ten minutes while you edit, and when you save a version here."
+      description={t('Snapshots are kept in this browser only. They are taken when you open a document, every ten minutes while you edit, and when you save a version here.')}
       footer={
         <>
-          <button type="button" className="btn" onClick={onClose}>Close</button>
-          <button type="button" className="btn" onClick={remove} disabled={!current || busy}>Delete version</button>
-          <button type="button" className="btn btn-primary" onClick={restore} disabled={!current || busy}>Restore this version</button>
+          <button type="button" className="btn" onClick={onClose}>{t('Close')}</button>
+          <button type="button" className="btn" onClick={remove} disabled={!current || busy}>{t('Delete version')}</button>
+          <button type="button" className="btn btn-primary" onClick={restore} disabled={!current || busy}>{t('Restore this version')}</button>
         </>
       }
     >
@@ -113,15 +115,15 @@ export default function VersionDialog({ store, docId, title, flush, onRestore, o
           saveVersion();
         }}
       >
-        <label htmlFor="version-label" className="sr-only">Name for this version</label>
-        <input id="version-label" type="text" value={label} maxLength={80} placeholder="Name this version (optional)" onChange={(e) => setLabel(e.target.value)} />
-        <button type="submit" className="btn" disabled={busy}>Save version now</button>
+        <label htmlFor="version-label" className="sr-only">{t('Name for this version')}</label>
+        <input id="version-label" type="text" value={label} maxLength={80} placeholder={t('Name this version (optional)')} onChange={(e) => setLabel(e.target.value)} />
+        <button type="submit" className="btn" disabled={busy}>{t('Save version now')}</button>
       </form>
       {error && <p role="alert" className="field-error">{error}</p>}
       <div className="version-layout">
-        <ul className="version-list" aria-label="Saved versions">
-          {versions === null && <li className="muted">Loading…</li>}
-          {versions && !versions.length && <li className="muted">No versions yet. One is saved automatically as you edit.</li>}
+        <ul className="version-list" aria-label={t('Saved versions')}>
+          {versions === null && <li className="muted">{t('Loading…')}</li>}
+          {versions && !versions.length && <li className="muted">{t('No versions yet. One is saved automatically as you edit.')}</li>}
           {(versions || []).map((v) => (
             <li key={v.vid}>
               <button type="button" className={`version-item${v.vid === selected ? ' is-selected' : ''}`} aria-pressed={v.vid === selected} onClick={() => setSelected(v.vid)}>
@@ -132,8 +134,8 @@ export default function VersionDialog({ store, docId, title, flush, onRestore, o
           ))}
         </ul>
         <div className="version-preview" aria-live="polite">
-          {!selected && <p className="muted">Select a version to preview it.</p>}
-          {selected && preview === null && <p className="muted">Loading preview…</p>}
+          {!selected && <p className="muted">{t('Select a version to preview it.')}</p>}
+          {selected && preview === null && <p className="muted">{t('Loading preview…')}</p>}
           {selected && preview !== null && <div className="doc version-doc" dangerouslySetInnerHTML={{ __html: preview }} />}
         </div>
       </div>

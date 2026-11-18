@@ -1,3 +1,4 @@
+import { useT } from '../i18n/index.js';
 import { useMemo } from 'react';
 import Icon from './Icon.jsx';
 import { collectComments } from '../editor/extensions/comment.js';
@@ -5,6 +6,7 @@ import { formatModified } from '../app/format.js';
 
 /** Side panel listing the document's comments. */
 export default function CommentsPanel({ editor, comments, onChange, onClose }) {
+  const t = useT();
   const anchors = useMemo(() => collectComments(editor.state.doc), [editor.state.doc]); // eslint-disable-line react-hooks/exhaustive-deps
   const order = [...anchors.keys()];
   const sorted = [...comments].sort((a, b) => {
@@ -29,14 +31,14 @@ export default function CommentsPanel({ editor, comments, onChange, onClose }) {
   };
 
   return (
-    <aside className="comments-panel" aria-label="Comments">
+    <aside className="comments-panel" aria-label={t('Comments')}>
       <div className="comments-head">
-        <h2>Comments</h2>
-        <button type="button" className="icon-btn" onClick={onClose} aria-label="Close comments">
+        <h2>{t('Comments')}</h2>
+        <button type="button" className="icon-btn" onClick={onClose} aria-label={t('Close comments')}>
           <Icon name="x" />
         </button>
       </div>
-      {!sorted.length && <p className="muted pad">No comments yet. Select some text, then choose Insert → Comment.</p>}
+      {!sorted.length && <p className="muted pad">{t('No comments yet. Select some text, then choose Insert → Comment.')}</p>}
       <ul className="comments-list">
         {sorted.map((c) => {
           const quote = anchors.get(c.id);
@@ -46,9 +48,9 @@ export default function CommentsPanel({ editor, comments, onChange, onClose }) {
               <p className="comment-text">{c.text}</p>
               <p className="comment-meta">{formatModified(c.createdAt)}{c.resolved ? ' · Resolved' : ''}</p>
               <div className="comment-actions">
-                {quote && <button type="button" className="link-btn" onClick={() => goTo(c.id)}>Show in text</button>}
+                {quote && <button type="button" className="link-btn" onClick={() => goTo(c.id)}>{t('Show in text')}</button>}
                 <button type="button" className="link-btn" onClick={() => toggle(c.id)}>{c.resolved ? 'Reopen' : 'Resolve'}</button>
-                <button type="button" className="link-btn danger" onClick={() => remove(c.id)}>Delete</button>
+                <button type="button" className="link-btn danger" onClick={() => remove(c.id)}>{t('Delete')}</button>
               </div>
             </li>
           );

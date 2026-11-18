@@ -964,6 +964,11 @@ kbd {
   height: auto;
   vertical-align: bottom;
 }
+/* A picture taller than a page's text area is scaled down to fit, so it can always sit on one page. */
+.editor-shell:not(.reflow) .sheet:not([data-columns]) .pw-prose img {
+  max-height: calc(var(--page-h) - 192px);
+  object-fit: contain;
+}
 .pw-prose img.ProseMirror-selectednode {
   outline: 3px solid var(--focus);
 }

@@ -1,3 +1,4 @@
+import { useT } from '../i18n/index.js';
 import { collectBookmarks } from '../editor/extensions/bookmark.js';
 import { useEffect, useId, useRef, useState } from 'react';
 import { normalizeLayout, NUMBER_POSITIONS } from '../editor/layout.js';
@@ -37,6 +38,7 @@ export function normalizeUrl(input) {
 }
 
 export function LinkDialog({ editor, range, href: existing = '', onClose }) {
+  const t = useT();
   const hasSelection = !!range && (range.from !== range.to || !!existing);
   const [url, setUrl] = useState(existing);
   const [text, setText] = useState('');
@@ -100,7 +102,7 @@ export function LinkDialog({ editor, range, href: existing = '', onClose }) {
               Or link to a bookmark in this document
             </label>
             <select id={`${urlId}-bm`} className="input" value="" onChange={(e) => { if (e.target.value) { setUrl(e.target.value); setError(''); } }}>
-              <option value="">Choose a bookmark…</option>
+              <option value="">{t('Choose a bookmark…')}</option>
               {bookmarks.map((b) => (
                 <option key={b.name} value={`#bm-${b.name}`}>
                   {b.name}{b.text ? ` — ${b.text}` : ''}
@@ -136,6 +138,7 @@ export function LinkDialog({ editor, range, href: existing = '', onClose }) {
 // ------------------------------------------------------------------ Image
 
 export function ImageDialog({ editor, range, onClose, notify }) {
+  const t = useT();
   const [tab, setTab] = useState('upload');
   const [alt, setAlt] = useState('');
   const [url, setUrl] = useState('');
@@ -170,8 +173,8 @@ export function ImageDialog({ editor, range, onClose, notify }) {
   };
 
   return (
-    <Dialog title="Insert image" onClose={onClose}>
-      <div className="tabs" role="tablist" aria-label="Image source">
+    <Dialog title={t('Insert image')} onClose={onClose}>
+      <div className="tabs" role="tablist" aria-label={t('Image source')}>
         {[
           ['upload', 'Upload from device'],
           ['url', 'By web address'],
@@ -188,7 +191,7 @@ export function ImageDialog({ editor, range, onClose, notify }) {
               Image file
             </label>
             <input id={fileId} className="input" type="file" accept={ACCEPTED_IMAGE_TYPES.join(',')} onChange={(e) => setFile(e.target.files[0] || null)} data-autofocus />
-            <p className="hint">The image is stored inside your document, in this browser. Large images are scaled down to 1600 px.</p>
+            <p className="hint">{t('The image is stored inside your document, in this browser. Large images are scaled down to 1600 px.')}</p>
           </>
         ) : (
           <>
@@ -204,7 +207,7 @@ export function ImageDialog({ editor, range, onClose, notify }) {
         <label className="field-label" htmlFor={altId}>
           Description (alt text)
         </label>
-        <input id={altId} className="input" value={alt} onChange={(e) => setAlt(e.target.value)} placeholder="Describe the image for people using screen readers" />
+        <input id={altId} className="input" value={alt} onChange={(e) => setAlt(e.target.value)} placeholder={t('Describe the image for people using screen readers')} />
         {error && (
           <p className="field-error" role="alert">
             {error}
@@ -227,6 +230,7 @@ export function ImageDialog({ editor, range, onClose, notify }) {
 // ------------------------------------------------------------------ Table
 
 export function TableDialog({ editor, range, onClose }) {
+  const t = useT();
   const [rows, setRows] = useState(3);
   const [cols, setCols] = useState(3);
   const [header, setHeader] = useState(true);
@@ -239,7 +243,7 @@ export function TableDialog({ editor, range, onClose }) {
     onClose();
   };
   return (
-    <Dialog title="Insert table" onClose={onClose} size="sm">
+    <Dialog title={t('Insert table')} onClose={onClose} size="sm">
       <form onSubmit={submit}>
         <div className="row">
           <div>
@@ -275,6 +279,7 @@ export function TableDialog({ editor, range, onClose }) {
 // ------------------------------------------------------------------ Find & replace (floating panel)
 
 export function FindReplacePanel({ editor, onClose, initialTerm = '' }) {
+  const t = useT();
   const [find, setFind] = useState(initialTerm);
   const [replace, setReplace] = useState('');
   const [caseSensitive, setCaseSensitive] = useState(false);
@@ -307,7 +312,7 @@ export function FindReplacePanel({ editor, onClose, initialTerm = '' }) {
   const step = (dir) => editor.commands.stepSearch(dir);
 
   return (
-    <div className="find-panel" role="search" aria-label="Find and replace">
+    <div className="find-panel" role="search" aria-label={t('Find and replace')}>
       <div className="find-row">
         <label className="sr-only" htmlFor={findId}>
           Find
@@ -316,7 +321,7 @@ export function FindReplacePanel({ editor, onClose, initialTerm = '' }) {
           id={findId}
           ref={findRef}
           className="input"
-          placeholder="Find"
+          placeholder={t('Find')}
           value={find}
           onChange={(e) => setFind(e.target.value)}
           onKeyDown={(e) => {
@@ -331,13 +336,13 @@ export function FindReplacePanel({ editor, onClose, initialTerm = '' }) {
         <span className="find-count" aria-live="polite">
           {label}
         </span>
-        <button type="button" className="icon-btn" aria-label="Previous match" onClick={() => step(-1)} disabled={!count}>
+        <button type="button" className="icon-btn" aria-label={t('Previous match')} onClick={() => step(-1)} disabled={!count}>
           <Icon name="chevronDown" className="flip" />
         </button>
-        <button type="button" className="icon-btn" aria-label="Next match" onClick={() => step(1)} disabled={!count}>
+        <button type="button" className="icon-btn" aria-label={t('Next match')} onClick={() => step(1)} disabled={!count}>
           <Icon name="chevronDown" />
         </button>
-        <button type="button" className="icon-btn" aria-label="Close find and replace" onClick={onClose}>
+        <button type="button" className="icon-btn" aria-label={t('Close find and replace')} onClick={onClose}>
           <Icon name="x" />
         </button>
       </div>
@@ -348,7 +353,7 @@ export function FindReplacePanel({ editor, onClose, initialTerm = '' }) {
         <input
           id={replId}
           className="input"
-          placeholder="Replace with"
+          placeholder={t('Replace with')}
           value={replace}
           onChange={(e) => setReplace(e.target.value)}
           onKeyDown={(e) => {
@@ -383,15 +388,16 @@ export function FindReplacePanel({ editor, onClose, initialTerm = '' }) {
 // ------------------------------------------------------------------ Page setup
 
 export function PageSetupDialog({ pageSize, layout, onApply, onClose }) {
+  const t = useT();
   const [size, setSize] = useState(pageSize);
   const [lay, setLay] = useState(() => normalizeLayout(layout));
   const [asDefault, setAsDefault] = useState(false);
   return (
     <Dialog
-      title="Page setup"
+      title={t('Page setup')}
       onClose={onClose}
       size="sm"
-      description="Sets the paper size, header, footer and page numbers used for printing and for PDF, Word and web-page export. Margins are 1 inch."
+      description={t('Sets the paper size, header, footer and page numbers used for printing and for PDF, Word and web-page export. Margins are 1 inch.')}
     >
       <form
         onSubmit={(e) => {
@@ -401,7 +407,7 @@ export function PageSetupDialog({ pageSize, layout, onApply, onClose }) {
         }}
       >
         <fieldset className="radio-group">
-          <legend className="field-label">Paper size</legend>
+          <legend className="field-label">{t('Paper size')}</legend>
           {Object.entries(PAGE_SIZES).map(([id, p]) => (
             <label key={id} className="check">
               <input type="radio" name="page-size" value={id} checked={size === id} onChange={() => setSize(id)} data-autofocus={size === id ? true : undefined} /> {p.label}
@@ -409,31 +415,31 @@ export function PageSetupDialog({ pageSize, layout, onApply, onClose }) {
           ))}
         </fieldset>
         <fieldset className="radio-group">
-          <legend className="field-label">Orientation</legend>
+          <legend className="field-label">{t('Orientation')}</legend>
           {[['portrait', 'Portrait'], ['landscape', 'Landscape']].map(([id, label]) => (
             <label key={id} className="check">
               <input type="radio" name="page-orientation" value={id} checked={lay.orientation === id} onChange={() => setLay({ ...lay, orientation: id })} /> {label}
             </label>
           ))}
         </fieldset>
-        <label className="field-label" htmlFor="pw-columns">Text columns</label>
+        <label className="field-label" htmlFor="pw-columns">{t('Text columns')}</label>
         <select id="pw-columns" className="input" value={lay.columns} onChange={(e) => setLay({ ...lay, columns: Number(e.target.value) })}>
           <option value={1}>1 column</option>
           <option value={2}>2 columns</option>
           <option value={3}>3 columns</option>
         </select>
-        {lay.columns > 1 && <p className="hint">Columns show in the editor (without page gaps), in Print, Word, ODT, RTF and web-page export. PDF export uses a single column.</p>}
-        <label className="field-label" htmlFor="pw-header">Header (top of every page)</label>
+        {lay.columns > 1 && <p className="hint">{t('Columns show in the editor (without page gaps), in Print, Word, ODT, RTF and web-page export. PDF export uses a single column.')}</p>}
+        <label className="field-label" htmlFor="pw-header">{t('Header (top of every page)')}</label>
         <input id="pw-header" className="input" type="text" value={lay.header} maxLength={150} onChange={(e) => setLay({ ...lay, header: e.target.value })} />
-        <label className="field-label" htmlFor="pw-footer">Footer (bottom of every page)</label>
+        <label className="field-label" htmlFor="pw-footer">{t('Footer (bottom of every page)')}</label>
         <input id="pw-footer" className="input" type="text" value={lay.footer} maxLength={150} onChange={(e) => setLay({ ...lay, footer: e.target.value })} />
-        <label className="field-label" htmlFor="pw-numbers">Page numbers</label>
+        <label className="field-label" htmlFor="pw-numbers">{t('Page numbers')}</label>
         <select id="pw-numbers" className="input" value={lay.pageNumbers} onChange={(e) => setLay({ ...lay, pageNumbers: e.target.value })}>
           {Object.entries(NUMBER_POSITIONS).map(([id, label]) => (
             <option key={id} value={id}>{label}</option>
           ))}
         </select>
-        <p className="hint">The editor shows one continuous sheet, so page numbers appear in print (Chrome, Edge), PDF, Word and web-page export, not on screen.</p>
+        <p className="hint">{t('The editor shows one continuous sheet, so page numbers appear in print (Chrome, Edge), PDF, Word and web-page export, not on screen.')}</p>
         <label className="check">
           <input type="checkbox" checked={asDefault} onChange={(e) => setAsDefault(e.target.checked)} /> Use this size for new documents
         </label>
@@ -454,6 +460,7 @@ export function PageSetupDialog({ pageSize, layout, onApply, onClose }) {
 // ------------------------------------------------------------------ Word count
 
 export function WordCountDialog({ editor, pages, onClose }) {
+  const t = useT();
   const cc = editor.storage.characterCount;
   const { from, to } = editor.state.selection;
   const selected = from !== to ? editor.state.doc.textBetween(from, to, ' ') : '';
@@ -466,7 +473,7 @@ export function WordCountDialog({ editor, pages, onClose }) {
     ['Characters (without spaces)', allText.replace(/\s/g, '').length],
   ];
   return (
-    <Dialog title="Word count" onClose={onClose} size="sm">
+    <Dialog title={t('Word count')} onClose={onClose} size="sm">
       <table className="info-table">
         <tbody>
           {rows.map(([k, v]) => (
@@ -478,11 +485,11 @@ export function WordCountDialog({ editor, pages, onClose }) {
           {selected && (
             <>
               <tr>
-                <th scope="row">Selected words</th>
+                <th scope="row">{t('Selected words')}</th>
                 <td>{words(selected).toLocaleString()}</td>
               </tr>
               <tr>
-                <th scope="row">Selected characters</th>
+                <th scope="row">{t('Selected characters')}</th>
                 <td>{selected.length.toLocaleString()}</td>
               </tr>
             </>
@@ -502,6 +509,7 @@ export function WordCountDialog({ editor, pages, onClose }) {
 // ------------------------------------------------------------------ Shortcuts
 
 export function ShortcutsDialog({ onClose }) {
+  const t = useT();
   const groups = [
     ['Document', [['Save now', `${MOD}S`], ['Find and replace', `${MOD}F`], ['Print', `${MOD}P`], ['Insert link', `${MOD}K`], ['Insert page break', `${MOD}Enter`]]],
     ['Text', [['Bold', `${MOD}B`], ['Italic', `${MOD}I`], ['Underline', `${MOD}U`], ['Strikethrough', `${MOD}Shift+S`], ['Clear formatting', `${MOD}\\`], ['Undo', `${MOD}Z`], ['Redo', `${MOD}Shift+Z`]]],
@@ -510,7 +518,7 @@ export function ShortcutsDialog({ onClose }) {
     ['Navigation', [['Move between toolbar buttons', '← → Home End'], ['Open a menu', 'Enter / ↓ on the menu name'], ['Close menu or dialog', 'Esc']]],
   ];
   return (
-    <Dialog title="Keyboard shortcuts" onClose={onClose}>
+    <Dialog title={t('Keyboard shortcuts')} onClose={onClose}>
       <div className="shortcuts">
         {groups.map(([title, items]) => (
           <section key={title}>
@@ -552,6 +560,7 @@ const SNIPPETS = [
 ];
 
 export function EquationDialog({ editor, range, initial, editing, onClose }) {
+  const t = useT();
   const [latex, setLatex] = useState(initial?.latex || '');
   const [display, setDisplay] = useState(!!initial?.display);
   const previewRef = useRef(null);
@@ -591,11 +600,11 @@ export function EquationDialog({ editor, range, initial, editing, onClose }) {
   };
 
   return (
-    <Dialog title={editing ? 'Edit equation' : 'Insert equation'} size="md" onClose={onClose} description="Write the equation in LaTeX. Word, Markdown and text exports keep it as LaTeX source between dollar signs.">
+    <Dialog title={editing ? 'Edit equation' : 'Insert equation'} size="md" onClose={onClose} description={t('Write the equation in LaTeX. Word, Markdown and text exports keep it as LaTeX source between dollar signs.')}>
       <form onSubmit={submit}>
-        <label className="field-label" htmlFor={areaId}>LaTeX</label>
-        <textarea id={areaId} ref={areaRef} className="input" rows={3} maxLength={2000} value={latex} onChange={(e) => setLatex(e.target.value)} data-autofocus spellCheck={false} placeholder="E = mc^2" />
-        <div className="snippet-row" role="group" aria-label="Insert a common form">
+        <label className="field-label" htmlFor={areaId}>{t('LaTeX')}</label>
+        <textarea id={areaId} ref={areaRef} className="input" rows={3} maxLength={2000} value={latex} onChange={(e) => setLatex(e.target.value)} data-autofocus spellCheck={false} placeholder={t('E = mc^2')} />
+        <div className="snippet-row" role="group" aria-label={t('Insert a common form')}>
           {SNIPPETS.map(([label, text]) => (
             <button key={label} type="button" className="chip" onClick={() => addSnippet(text)}>{label}</button>
           ))}
@@ -603,10 +612,10 @@ export function EquationDialog({ editor, range, initial, editing, onClose }) {
         <label className="check">
           <input type="checkbox" checked={display} onChange={(e) => setDisplay(e.target.checked)} /> Large, centred (display style)
         </label>
-        <p className="field-label">Preview</p>
+        <p className="field-label">{t('Preview')}</p>
         <div ref={previewRef} className="equation-preview" aria-live="polite" />
         <div className="dialog-footer inline">
-          <button type="button" className="btn" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn" onClick={onClose}>{t('Cancel')}</button>
           <button type="submit" className="btn btn-primary" disabled={!latex.trim()}>{editing ? 'Update' : 'Insert'}</button>
         </div>
       </form>
@@ -617,6 +626,7 @@ export function EquationDialog({ editor, range, initial, editing, onClose }) {
 // ------------------------------------------------------------------ Footnote & comment
 
 export function FootnoteDialog({ editor, range, initial, editing, onClose }) {
+  const t = useT();
   const [note, setNote] = useState(initial || '');
   const id = useId();
   const submit = (e) => {
@@ -629,12 +639,12 @@ export function FootnoteDialog({ editor, range, initial, editing, onClose }) {
     onClose();
   };
   return (
-    <Dialog title={editing ? 'Edit footnote' : 'Insert footnote'} size="md" onClose={onClose} description="The note is numbered automatically and listed under the document.">
+    <Dialog title={editing ? 'Edit footnote' : 'Insert footnote'} size="md" onClose={onClose} description={t('The note is numbered automatically and listed under the document.')}>
       <form onSubmit={submit}>
-        <label className="field-label" htmlFor={id}>Note</label>
+        <label className="field-label" htmlFor={id}>{t('Note')}</label>
         <textarea id={id} className="input" rows={4} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} data-autofocus />
         <div className="dialog-footer inline">
-          <button type="button" className="btn" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn" onClick={onClose}>{t('Cancel')}</button>
           <button type="submit" className="btn btn-primary" disabled={!note.trim()}>{editing ? 'Update' : 'Insert'}</button>
         </div>
       </form>
@@ -643,22 +653,23 @@ export function FootnoteDialog({ editor, range, initial, editing, onClose }) {
 }
 
 export function CommentDialog({ excerpt, onSubmit, onClose }) {
+  const t = useT();
   const [text, setText] = useState('');
   const id = useId();
   return (
-    <Dialog title="Add comment" size="md" onClose={onClose} description={excerpt ? `On: “${excerpt.slice(0, 120)}${excerpt.length > 120 ? '…' : ''}”` : undefined}>
+    <Dialog title={t('Add comment')} size="md" onClose={onClose} description={excerpt ? `On: “${excerpt.slice(0, 120)}${excerpt.length > 120 ? '…' : ''}”` : undefined}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
           if (text.trim()) onSubmit(text);
         }}
       >
-        <label className="field-label" htmlFor={id}>Comment</label>
+        <label className="field-label" htmlFor={id}>{t('Comment')}</label>
         <textarea id={id} className="input" rows={4} maxLength={2000} value={text} onChange={(e) => setText(e.target.value)} data-autofocus />
-        <p className="hint">Comments stay in this browser with the document. They are not included in exports.</p>
+        <p className="hint">{t('Comments stay in this browser with the document. They are not included in exports.')}</p>
         <div className="dialog-footer inline">
-          <button type="button" className="btn" onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn btn-primary" disabled={!text.trim()}>Comment</button>
+          <button type="button" className="btn" onClick={onClose}>{t('Cancel')}</button>
+          <button type="submit" className="btn btn-primary" disabled={!text.trim()}>{t('Comment')}</button>
         </div>
       </form>
     </Dialog>
